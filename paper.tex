@@ -5,17 +5,17 @@
 %% The original source files were:
 %%
 %% samples.dtx  (with options: `all,proceedings,bibtex,sigconf')
-%% 
+%%
 %% IMPORTANT NOTICE:
-%% 
+%%
 %% For the copyright see the source file.
-%% 
+%%
 %% Any modified versions of this file must be renamed
 %% with new filenames distinct from sample-sigconf.tex.
-%% 
+%%
 %% For distribution of the original source see the terms
 %% for copying and modification in the file samples.dtx.
-%% 
+%%
 %% This generated file may be distributed as long as the
 %% original source files, as listed above, are part of the
 %% same distribution. (The sources need not necessarily be
@@ -23,9 +23,9 @@
 %%
 %%
 %% Commands for TeXCount
-%TC:macro \cite [option:text,text]
-%TC:macro \citep [option:text,text]
-%TC:macro \citet [option:text,text]
+%TC:macro~\cite [option:text,text]
+%TC:macro~\citep [option:text,text]
+%TC:macro~\citet [option:text,text]
 %TC:envir table 0 1
 %TC:envir table* 0 1
 %TC:envir tabular [ignore] word
@@ -62,9 +62,9 @@
 
 \author{Lars Th{\o}rv{\"a}ld}
 \affiliation{%
-  \institution{The Th{\o}rv{\"a}ld Group}
-  \city{Hekla}
-  \country{Iceland}}
+\institution{The Th{\o}rv{\"a}ld Group}
+\city{Hekla}
+\country{Iceland}}
 \email{larst@affiliation.org}
 
 \author{Valerie B\'eranger}
@@ -76,40 +76,40 @@
 
 \author{Aparna Patel}
 \affiliation{%
- \institution{Rajiv Gandhi University}
- \city{Doimukh}
- \state{Arunachal Pradesh}
- \country{India}}
+  \institution{Rajiv Gandhi University}
+  \city{Doimukh}
+  \state{Arunachal Pradesh}
+  \country{India}}
 
 \renewcommand{\shortauthors}{Trovato et al.}
 
 \begin{abstract}
-As the compute capabilities of major graphics APIs have matured, there has been growing utilization of compute shaders for graphical tasks, and as such, there has been corresponding interest in porting over primitives like prefix scan from compute languages to shading languages. However, the current state-of-the-art prefix scan, \textit{Chained Scan with Decoupled Lookback}, relies on properties provided by the NVIDIA ecosystem that, once removed, force developers to make trade-offs between maintainability, portability, and performance. We describe \textit{DecoupledFallback}, a fully portable, single-pass prefix scan method capable of reaching speed of light scan performance across different hardwares with minimal developer intervention. Our implementation is built in WGSL and is compatible with any implementation of the WebGPU standard (I think? It definitely does not work on WARP . . . which is concerning).
+  As the compute capabilities of major graphics APIs have matured, there has been growing utilization of compute shaders for graphical tasks, and as such, there has been corresponding interest in porting over primitives like prefix scan from compute languages to shading languages. However, the current state-of-the-art prefix scan, \emph{Chained Scan with Decoupled Lookback}, relies on properties provided by the NVIDIA ecosystem that, once removed, force developers to make trade-offs between maintainability, portability, and performance. We describe \emph{DecoupledFallback}, a fully portable, single-pass prefix scan method capable of reaching speed of light scan performance across different hardwares with minimal developer intervention. Our implementation is built in WGSL and is compatible with any implementation of the WebGPU standard (I think? It definitely does not work on WARP . . . which is concerning).
 \end{abstract}
 
 \begin{CCSXML}
-<ccs2012>
- <concept>
+  <ccs2012>
+  <concept>
   <concept_id>00000000.0000000.0000000</concept_id>
   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
   <concept_significance>500</concept_significance>
- </concept>
- <concept>
+  </concept>
+  <concept>
   <concept_id>00000000.00000000.00000000</concept_id>
   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
   <concept_significance>300</concept_significance>
- </concept>
- <concept>
+  </concept>
+  <concept>
   <concept_id>00000000.00000000.00000000</concept_id>
   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
   <concept_significance>100</concept_significance>
- </concept>
- <concept>
+  </concept>
+  <concept>
   <concept_id>00000000.00000000.00000000</concept_id>
   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
   <concept_significance>100</concept_significance>
- </concept>
-</ccs2012>
+  </concept>
+  </ccs2012>
 \end{CCSXML}
 
 \ccsdesc[500]{Do Not Use This Code~Generate the Correct Terms for Your Paper}
@@ -127,44 +127,44 @@ As the compute capabilities of major graphics APIs have matured, there has been 
 \maketitle
 
 \section{Introduction}
-Prefix scan is one of the most fundamental primitives in parallel computing, with uses including compaction, sorting \cite{10.1145/3035918.3064043, adinets2022onesweepfastersignificantdigit}, SPMV \cite{} etc.. Sometimes referred to as \textit{scan} or \textit{prefix reduction}, prefix scan is typically defined on a monoid, though it can also be defined on a semigroup in certain cases\cite{10.1007/978-3-540-27764-4_11}. In a prefix scan, the result at element $n$ is the reduction of the preceding subset of elements in the sequence. If the reduction subset includes the $n$-th element, it is called \textit{inclusive}; if it excludes the $n$-th element, it is called \textit{exclusive}. The binary operator used in the scan must be associative, but it need not be commutative—for instance, in the case of the stack monoid. The most common type of prefix scan is prefix sum, where the binary operator is addition. For example\footnote{In this paper we will use the terminology of WGSL, but we note that subgroup is interchangeable with warp(CUDA), wave(HLSL), and simd\_group(Metal), while workgroup is interchangeable with block(CUDA), group(HLSL), and ???(Metal)}: 
+Prefix scan is one of the most fundamental primitives in parallel computing, with uses including compaction, sorting~\cite{10.1145/3035918.3064043, adinets2022onesweepfastersignificantdigit}, SPMV~\cite{} etc. Sometimes referred to as \emph{scan} or \emph{prefix reduction}, prefix scan is typically defined on a monoid, though it can also be defined on a semigroup in certain cases~\cite{10.1007/978-3-540-27764-4_11}. In a prefix scan, the result at element $n$ is the reduction of the preceding subset of elements in the sequence. If the reduction subset includes the $n$-th element, it is called \emph{inclusive}; if it excludes the $n$-th element, it is called \emph{exclusive}. The binary operator used in the scan must be associative, but it need not be commutative—for instance, in the case of the stack monoid. The most common type of prefix scan is prefix sum, where the binary operator is addition. For example\footnote{In this paper we will use the terminology of WGSL, but we note that subgroup is interchangeable with warp(CUDA), wave(HLSL), and simd\_group(Metal), while workgroup is interchangeable with block(CUDA), group(HLSL), and ???(Metal)}:
 
 (PREFIX SUM EXAMPLE WITH BINARY REDUCTION OPERATOR)
 
-Contemporary GPU's are characterized by their high memory bandwidth, high arithmetic throughput, high memory latency, and hierarchical memory model. With proper latency-hiding, prefix scan is computationally light enough that it is memory-bandwidth bound, and thus the focus of contemporary scan strategies has been global communication avoidance. The current state-of-the-art prefix scan is \textit{Chained Scan with Decoupled Lookback}\cite{Merrill2016} (referred to hereon as \textit{DecoupledLookback}). Although a chained scan\footnote{A chained scan is a scan performed serially.} may seem inimical to parallelism, the key innovation of GPU chained scanning lies in its hybridization of parallel and serial scan strategies at different levels of the GPU memory hierarchy, achieving parallelism at the intra-workgroup level while minimizing global data movement through serial scan operations at the inter-workgroup level. \textit{DecoupledLookback} leverages this hybrid strategy while also being capable of fully saturating global memory bandwidth, and as a result, with approximately \textasciitilde$2n$ global data movement—one read and one write per processed element—it matches the performance of a copy operation, effectively achieving “speed of light” efficiency.
+Contemporary GPU's are characterized by their high memory bandwidth, high arithmetic throughput, high memory latency, and hierarchical memory model. With proper latency-hiding, prefix scan is computationally light enough that it is memory-bandwidth bound, and thus the focus of contemporary scan strategies has been global communication avoidance. The current state-of-the-art prefix scan is \emph{Chained Scan with Decoupled Lookback}~\cite{Merrill2016} (referred to hereon as \emph{DecoupledLookback}). Although a chained scan\footnote{A chained scan is a scan performed serially.} may seem inimical to parallelism, the key innovation of GPU chained scanning lies in its hybridization of parallel and serial scan strategies at different levels of the GPU memory hierarchy, achieving parallelism at the intra-workgroup level while minimizing global data movement through serial scan operations at the inter-workgroup level. \emph{DecoupledLookback} leverages this hybrid strategy while also being capable of fully saturating global memory bandwidth, and as a result, with approximately \textasciitilde$2n$ global data movement—one read and one write per processed element—it matches the performance of a copy operation, effectively achieving “speed of light” efficiency.
 
- Although \textit{DecoupledLookback} achieves near-ideal performance on NVIDIA hardware and implemented in CUDA, it relies on a set of architectural and language-specific guarantees that no longer hold once outside of the NVIDIA ecosystem: forward progress guarantees (FPG), fixed subgroup sizes, explicit divergence handling, and memory fences. Without forward progress guarantees, the algorithm risks deadlock, forcing either a regression to the slower \textit{Reduce-then-Scan} approach or maintenance of multiple scan variants. Without fixed subgroup sizes, developers must again regress to slower scan implementations without subgroup acceleration or maintain multiple scan variants. Ambiguous divergence behavior can produce subtle correctness or performance issues, and without explicit masks, developers must rely on compiler and vendor-specific heuristics, increasing the risk of unpredictable behavior and further complicating portability efforts. Absent memory fences, as is the case in the D3D12 API, control over memory ordering is significantly diminished and can result in unbounded redundant work during the scan.
- 
-While previous work has focused on improving the performance of prefix scan, the contribution of this work is portability. This work presents \textit{Chained Scan with Decoupled Lookback and Decoupled Fallback}, a fully portable prefix scan capable of reaching speed of light performance without FPG, and implemented in the WGSL shading language. On an intra-workgroup level, we contribute a subgroup-size-agnostic scan pattern, which enables a single scan pattern to be used for all possible subgroup sizes. On an inter-workgroup-level, we contribute \textit{DecoupledFallback}, an extension of the \textit{DecoupledLookback} technique that is no longer dependent on FPG to execute correctly. Our implementation is guided by the following goals:
+Although \emph{DecoupledLookback} achieves near-ideal performance on NVIDIA hardware and implemented in CUDA, it relies on a set of architectural and language-specific guarantees that no longer hold once outside of the NVIDIA ecosystem: forward progress guarantees (FPG), fixed subgroup sizes, explicit divergence handling, and memory fences. Without forward progress guarantees, the algorithm risks deadlock, forcing either a regression to the slower \emph{Reduce-then-Scan} approach or maintenance of multiple scan variants. Without fixed subgroup sizes, developers must again regress to slower scan implementations without subgroup acceleration or maintain multiple scan variants. Ambiguous divergence behavior can produce subtle correctness or performance issues, and without explicit masks, developers must rely on compiler and vendor-specific heuristics, increasing the risk of unpredictable behavior and further complicating portability efforts. Absent memory fences, as is the case in the D3D12 API, control over memory ordering is significantly diminished and can result in unbounded redundant work during the scan.
+
+While previous work has focused on improving the performance of prefix scan, the contribution of this work is portability. This work presents \emph{Chained Scan with Decoupled Lookback and Decoupled Fallback}, a fully portable prefix scan capable of reaching speed of light performance without FPG, and implemented in the WGSL shading language. On an intra-workgroup level, we contribute a subgroup-size-agnostic scan pattern, which enables a single scan pattern to be used for all possible subgroup sizes. On an inter-workgroup-level, we contribute \emph{DecoupledFallback}, an extension of the \emph{DecoupledLookback} technique that is no longer dependent on FPG to execute correctly. Our implementation is guided by the following goals:
 \begin{itemize}
-\item \textbf{Portability: The implementation must execute correctly on all hardwares and backend graphics API's supported by the WebGPU standard.} Our scan should execute correctly on any hardware and API, regardless of the underlying subgroup size, scheduling model, or divergence behavior. 
-\item \textbf{Performance: The implementation must achieve speed of light performance whenever possible.} Our scan should achieve speed of light performance whenever possible, without relying on vendor-specific adaptations.
-\item \textbf{Maintainability: The implementation must use a single variant for all hardwares and must be minimally compiled.} Creating statically specialized per-vendor shader variants increases both maintenance and compilation times. Our goal is to make our implementation as lightweight to maintain and compile as possible.
-\item \textbf{Ease of use: Using the implementation should require as little developer intervention as possible.} Developers should not have to be conscious of, or make decisions based on, their target hardware when using our scan.
+  \item \textbf{Portability: The implementation must execute correctly on all hardwares and backend graphics APIs supported by the WebGPU standard.} Our scan should execute correctly on any hardware and API, regardless of the underlying subgroup size, scheduling model, or divergence behavior.
+  \item \textbf{Performance: The implementation must achieve speed of light performance whenever possible.} Our scan should achieve speed of light performance whenever possible, without relying on vendor-specific adaptations.
+  \item \textbf{Maintainability: The implementation must use a single variant for all hardwares and must be minimally compiled.} Creating statically specialized per-vendor shader variants increases both maintenance and compilation times. Our goal is to make our implementation as lightweight to maintain and compile as possible.
+  \item \textbf{Ease of use: Using the implementation should require as little developer intervention as possible.} Developers should not have to be conscious of, or make decisions based on, their target hardware when using our scan.
 \end{itemize}
 
 \section{Background}
 
-The study of prefix scan patterns can be traced to the design of adder circuits and beyond\cite{10.1145/322217.322232, 5219801}. Indeed, at their most granular level, contemporary GPU scan patterns still utilize classical parallel prefix adders like Hillis-Steele/Kogge-Stone\cite{10.1145/7902.7903, 5009159}, Brent-Kung\cite{1675982}, or Sklansky\cite{5219822}.
+The study of prefix scan patterns can be traced to the design of adder circuits and beyond~\cite{10.1145/322217.322232, 5219801}. Indeed, at their most granular level, contemporary GPU scan patterns still utilize classical parallel prefix adders like Hillis-Steele/Kogge-Stone~\cite{10.1145/7902.7903, 5009159}, Brent-Kung~\cite{1675982}, or Sklansky~\cite{5219822}.
 
 \subsubsection{Evolution of Intra-Workgroup Scan Strategies}
 
 \subsection{Evolution of Inter-Workgroup Scan Strategies}
 In a prefix scan, the reduction at each element is dependent on the reduction of preceding elements. Thus a serial inter-workgroup dependency is created when the size of the scan exceeds the capacity of a single workgroup.
 
-\subsubsection{\textit{4n}: Scan-Then-Propagate}
+\subsubsection{\emph{4n}: Scan-Then-Propagate}
 \cite{Sengupta2008, 10.5555/1280094.1280110, GPUGems3}
-\subsubsection{\textit{3n}: Reduce-Then-Scan}
+\subsubsection{\emph{3n}: Reduce-Then-Scan}
 \cite{Merrill2009, 10.5555/110382.110597, 10.1145/1375527.1375559}
-\subsubsection{\textit{2n}: Single-Pass Scan}
+\subsubsection{\emph{2n}: Single-Pass Scan}
 \cite{10.1145/2442516.2442539,Merrill2016}
 \subsection{Portability}
 \cite{sorensen_et_al:LIPIcs.CONCUR.2018.23, 10.1145/3485508, NvidiaCudaGuide, NvidiaVoltaWhitepaper}:
 \begin{itemize}
-    \item \textbf{Forward Progress Guarantee:} Beginning with the Volta architecture, NVIDIA formalized forward-progress-guarantees (FPG) at both the workgroup and subgroup level. Prior to Volta, FPG was likely already present at a workgroup level. 
-    \item \textbf{Fixed Subgroup Size:} On NVIDIA hardware, the subgroup width is fixed at 32, enabling static optimizations at that specific width. Furthermore, the square of the subgroup width is CUDA's maximum workgroup size, enabling straightforward implementation of workgroup reductions.
-    \item \textbf{Unambiguous Divergence Behavior:} In CUDA, developers can explicitly provision subgroup functions with a mask of participating threads, unambiguously defining the function's behavior irrespective of potential divergence. 
-    \item \textbf{Memory Fence:} CUDA offers developers memory fence functions to enforce sequentially consistent atomic memory accesses, enabling more efficient inter-workgroup synchronization.
+  \item \textbf{Forward Progress Guarantee:} Beginning with the Volta architecture, NVIDIA formalized forward-progress-guarantees (FPG) at both the workgroup and subgroup level. Prior to Volta, FPG was likely already present at a workgroup level.
+  \item \textbf{Fixed Subgroup Size:} On NVIDIA hardware, the subgroup width is fixed at 32, enabling static optimizations at that specific width. Furthermore, the square of the subgroup width is CUDA's maximum workgroup size, enabling straightforward implementation of workgroup reductions.
+  \item \textbf{Unambiguous Divergence Behavior:} In CUDA, developers can explicitly provision subgroup functions with a mask of participating threads, unambiguously defining the function's behavior irrespective of potential divergence.
+  \item \textbf{Memory Fence:} CUDA offers developers memory fence functions to enforce sequentially consistent atomic memory accesses, enabling more efficient inter-workgroup synchronization.
 \end{itemize}
 
 \section{Subgroup Size Agnostic Pattern}
