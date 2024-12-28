@@ -130,7 +130,13 @@
 \maketitle
 
 \section{Introduction}
-Do. this. last.
+
+\subsection{Goals of a Scan Implementation}
+\begin{itemize}
+  \item \textbf{Minimal global memory access:} the scan should minimize global memory access to the theoretical minimum of $2n$.
+  \item \textbf{Fully saturates global memory bandwidth:} the scan should be capable of fully saturating the global memory bandwidth.
+  \item \textbf{Portability:} the scan should be portable across hardware vendors and architectures. 
+\end{itemize}
 
 \section{Background}
 \subsection{The GPU Programming Environment(Model?)}
@@ -140,59 +146,70 @@ While threads within the same workgroup can synchronize with each other using ba
 
 GPUs exhibit both single-instruction, multiple-thread (SIMT) and single-program, multiple-data (SPMD) behaviors. A multiprocessor schedules and executes threads by subgroup. While it attempts to execute the same instruction across all threads in the subgroup, SIMT, threads within the same subgroup are free to follow their own data/context-dependent execution paths, SPMD. However, this flexibility comes at the cost of subgroup divergence. When threads in a subgroup diverge due to conditional branching or other control flow, each unique path is executed sequentially, but at the full execution width, effectively rendering the operation serial and reducing parallel efficiency.\footnote{The scheduling and execution width of the underlying hardware does not necessarily align with the subgroup width.}
 
-Most relevant to this work is the scheduling behavior of the GPU. Scheduling is divided into a workgroup-level scheduler\footnote{For example, NVIDIA's \emph{GigaThread Engine} or AMD's \emph{Asynchronous Compute Engines}}, which manages kernel launches and maps workgroups to multiprocessors, and the aforementioned subgroup scheduler, responsible for selecting which of the currently resident subgroups for execution. Although contemporary GPU hardware supports workgroup preemption to prioritize real-time tasks or manage multi-process workloads~\cite{}(NVIDIA Volta,AMD RDNA), this capability does not extend to the GPU programming model. Once a workgroup begins execution on a multiprocessor, it must run to completion and cannot context switch. At the subgroup scheduling level, \emph{fairness}—how evenly execution resources are distributed among threads—and \emph{progress guarantees}—ensuring that all threads or subgroups eventually make forward progress—are the most salient issues. As we will discuss in \emph{Why does \emph{Chained-Scan} Rely on Forward Progress Guarantees} (latex section link here), these factors have profound implications for kernel performance and correctness.
+Most relevant to this work is the scheduling behavior of the GPU. Scheduling is divided into a workgroup-level scheduler\footnote{For example, NVIDIA's \emph{GigaThread Engine} or AMD's \emph{Asynchronous Compute Engines}}, which manages kernel launches and maps workgroups to multiprocessors, and the aforementioned subgroup scheduler, responsible for selecting which of the currently resident subgroups for execution. Although contemporary GPU hardware supports workgroup preemption to prioritize real-time tasks or manage multi-process workloads~\cite{}(NVIDIA Volta,AMD RDNA), this capability does not extend to the GPU programming model. Once a workgroup begins execution on a multiprocessor, it must run to completion and cannot context switch. At the subgroup scheduling level, \emph{fairness}—how evenly execution resources are distributed among threads—and \emph{progress guarantees}—ensuring that all threads or subgroups eventually make forward progress—are the most salient issues. As we will discuss in the following section, these factors have profound implications for kernel performance and correctness.
 
 \subsection{The Scan Primitive}
-The study of \emph{parallel prefix computation networks} traces back to the design of carry-lookahead adder circuits and earlier work~\cite{10.1145/322217.322232, 5219801}. The term \emph{scan}, introduced by Iverson in the APL programming language, is often used interchangeably with \emph{prefix computation}~\cite{IVERSON}. A scan is typically defined on a monoid \( M \), characterized by a binary reduction operator \( \oplus \) and an identity element \( \varepsilon \). The binary operator \( \oplus \) satisfies the closure property \( \forall a, b \in M, \ (a \oplus b) \in M \) and has an identity element \( \exists \varepsilon \in M, \ \forall a \in M, \ \varepsilon \oplus a = a \). Although \( \oplus \) must be associative, it is not necessarily commutative, as demonstrated in structures like the stack monoid~\cite{}. In a scan, the result at the \( n \)-th element is the reduction of the preceding subset of elements in the sequence. If the subset includes the \( n \)-th element, it is called \emph{inclusive}; if it excludes the \( n \)-th element, it is called \emph{exclusive}. The most common scan type is the prefix sum, where \( \oplus \) is addition. For example:
+The study of \emph{scan} (\emph{parallel prefix}) networks traces back to the design of carry-lookahead adder circuits and beyond\cite{10.1145/322217.322232, 5219801}. A scan is typically defined on a monoid \( M \), characterized by a binary reduction operator \( \oplus \) and an identity element \( \varepsilon \). The binary operator \( \oplus \) satisfies the closure property \( \forall a, b \in M, \ (a \oplus b) \in M \) and has an identity element \( \exists \varepsilon \in M, \ \forall a \in M, \ \varepsilon \oplus a = a \). Although \( \oplus \) must be associative, it is not necessarily commutative, as demonstrated in structures like the stack monoid\cite{}. In a scan, the result at the \( n \)-th element is the reduction of the preceding subset of elements in the sequence. If the subset includes the \( n \)-th element, it is called \textit{inclusive}; if it excludes the \( n \)-th element, it is called \textit{exclusive}. The most common scan type is the prefix sum, where \( \oplus \) is addition. For example:
 \[
-  x = [x_1, x_2, x_3, \dots, x_n]
+  x = [x_1, x_2, x_3, \dots, x_n] \ \ \ \ \ \ \ y = [1, 1, 1, 1, 1] 
 \]
 \[
   \text{InclusiveScan}(x, \oplus) = [x_1, x_1 \oplus x_2, x_1 \oplus x_2 \oplus x_3, \dots, x_1 \oplus x_2 \oplus \cdots \oplus x_n]
 \]
-
-More concretely, let \( y = [1, 1, 1, 1, 1] \). The inclusive scan of \( y \) using addition is:
 \[
   \text{InclusiveScan}(y, +) = [1, 2, 3, 4, 5]
 \]
 
-Scans are characterized by their \emph{depth} $d$, the number of parallel work steps required, and \emph{size} $s$, the total number of $\oplus$ operations performed. Snir proved that for a network size $n$, depth and size are related by $s + d \ge 2n - 2$~\cite{}. This equation highlights a fundamental tradeoff: as depth decreases to improve parallelism, the size (i.e., total work) increases proportionally, and vice versa. Likewise, Harris introduces a circuit-based, three-dimensional taxonomy of scans, relating \emph{fanout} $f$, \emph{wire-tracks} $t$, and \emph{depth} by $f + t + d = \log_2n - 1$~\cite{}. Here, fanout denotes the number of simultaneous outputs from a single node, while wire-tracks represent the number of parallel connections, broadly analogous to overall network size. The classic scans map to maximal points in this three-dimensional space: maximal tracks Kogge-Stone/Hillis-Steele~\cite{}, maximal fanout Sklansky~\cite{}, and maximal depth Brent-Kung~\cite{}. Furthermore, the associative property of $\oplus$ enables the hybridization of different scan network structures. In Harris’s taxonomy, these hybrid scans correspond to intermediate points between the maximal designs: depth-fanout Ladner-Fischer~\cite{}, depth-tracks Hans-Carlson~\cite{}, and fanout-tracks Knowles~\cite{}.
-
-\begin{table}[h]
-  \centering
-  \caption{Comparison of Different Scan Networks}
-  \label{tab:scan_comparison_exact}
-  \begin{tabular}{lcc}
-    \toprule
-    \textbf{Network}         & \textbf{Size} & \textbf{Miminum Depth Variant}                                 \\ \midrule
-    \textbf{Serial}          & $n$           & $n - 1$                                                        \\
-    \textbf{Kogge--Stone}    & $O(n \log n)$ & $\log_2(n)$                                                    \\
-    \textbf{Sklansky}        & $O(n \log n)$ & $\log_2(n)$                                                    \\
-    \textbf{Brent--Kung}     & $O(n)$        & $2 \log_2(n) - 1$                                              \\
-    \textbf{Han--Carlson}    & $O(n)$        & $\log_2(n) + \Big\lfloor \tfrac{\log_2(n)}{2} \Big\rfloor - 1$ \\
-    \textbf{Knowles}         & $O(n)$        & $\log_2(n)$                                                    \\
-    \textbf{Ladner--Fischer} & $O(n)$        & $\log_2(n)$                                                    \\ \bottomrule
-  \end{tabular}
-\end{table}
-\footnote{Hybrid scans offer varying degrees of hybridization; for simplicity, we report only the size of the minimal-depth variant.}
-For our purposes, we are primarily concerned about depth and size. Notably, Fich proved that with unbounded fanout, the Ladner-Fischer network has both minimal depth, $\lceil \log_2n \rceil$ and optimal size, $O(n)$~\cite{}. While circuit engineering tends to favor minimal depth networks---Kogge-Stone, Hans-Carlson---for minimal latency, the task sizes of scan algorithms frequently exceed the number of available physical processors. This makes minimal-size networks, like Brent–Kung and Sklansky, more practical for algorithmic implementation. Within computer science, Blelloch formalized scan in the PRAM model and popularized their use as a parallel compute primitive~\cite{}. Horn was the first to adapt scan for GPU use and Sengupta et al.\ were the first to adapt scan to CUDA~\cite{}.
-
-\subsection{GPU Specific Scan Adaptation}
+Due to its significance in circuits and as a fundamental algorithmic primitive, scan enjoys a rich literature in both electrical engineering and computer science~\cite{}. As comprehensive taxonomies of scan networks are well-documented, our focus is on exploring the progression of inter-workgroup (global) scan strategies and their fitness relative to our ideal architecture.
 
 \subsection{Evolution of Inter-Workgroup Scan Architectures}
+Prior to the introduction of shared memory, early GPU scan implementations~\cite{Horn, Hensley, Greß, Sengupta} operated directly on global memory and performed a single global scan where each level of depth necessitated a separate kernel launch. The introduction of shared memory and dedicated compute environments resulted in the first implementations to resemble contemporary designs, combining coarse-grained inter-workgroup strategies with fine-grained intra-workgroup strategies. \emph{Work tile} partitioning was introduced to divide inputs into workgroup-consumable chunks that fit within the limited size of shared memory. However, as a natural result of this partitioning, a serial dependency is created between the work tiles. In this section, we review the three prominent global scan strategies—\emph{Scan-then-Propagate}, \emph{Reduce-then-Scan}, and \emph{Chained-Scan}—examining how they navigate this inter-workgroup dependency and evaluating their effectiveness in minimizing global memory access and maximizing memory bandwidth utilization in alignment with our ideal architecture goals.
 
 \subsubsection{Scan-then-Propagate}
+Introduced by Sengupta et al.\cite{10.5555/1280094.1280110}, the \emph{Scan-then-Propagate} \cite{GPUGems3, Sengupta2008} strategy is an intuitive extension of the intra-workgroup scan, comprising three phases: 
+\begin{enumerate} 
+  \item \textbf{Intra-Workgroup (Local) Scan:} Each workgroup performs an inclusive scan on its assigned work-tile partition of the input data. The results, including both the local scan output and the reduction of each workgroup, are written back to global memory.
+  \item \textbf{Spine Scan:} The reductions from all workgroups, collectively referred to as \emph{the spine}, are gathered and scanned to compute the global prefix of the reductions, resolving the dependencies between workgroups; we call the result of this phase the \emph{root}. 
+  \item \textbf{Propagation:} The root is propagated back to each workgroup and combined with the local scan results to compute the final scan. 
+\end{enumerate}
+Without an inter-workgroup barrier primitive, each phase is implemented as a separate kernel launch to ensure a consistent view of the reductions. During the scan operation, each element is read from and written to global memory once during the local scan and again during the propagation phase, contributing a total of $4n$ global memory operations. Although data movement is dominated by the first and third phase, Sengupta et al.'s implementation handles arbitrarily large inputs using recursion. For an input of size $n$ and a work tile of size $t$, this results in a recursive depth of $\lceil \log_t n \rceil$. At each recursive step $k$, $n/t^k$ tiles are processed, leading to a total of $\sum_{k=1}^{\lceil \log_t n \rceil} n/t^k \approx (n - 1)/(t - 1)$ work tiles over all steps. Since each tile moves $4t$ data ($2t$ local scan, $2t$ propagation), the total data movement is $O\left(\frac{4t(n - 1)}{t - 1}\right) = O(4n)$.
+
 \subsubsection{Reduce-then-Scan}
+As the design of GPUs settled around the high-throughput but high-latency paradigm, reducing global memory access, rather than compute, became the prevailing goal for algorithms like scan, which are computationally light enough for their compute to be masked by global memory access. This led to a refinement of the \emph{Scan-Then-Propagate} strategy called \emph{Reduce-Then-Scan}\cite{Merrill Grimshaw, Ha and Han, Dotsenko, Breitbart}: by writing only the work tile reduction in the first phase and performing a redundant scan in the third phase, $n$ global data movement can be eliminated. The \emph{Reduce-Then-Scan} strategy operates in three phases:
+\begin{enumerate}
+  \item \textbf{Work Tile Reduction:} Each workgroup performs a pure reduction on its work tile partition, posting the result into global memory. 
+  \item \textbf{Spine Scan:} The reductions from all workgroups are gathered and scanned to produce the root.
+  \item \textbf{Intra-Workgroup Scan and Propagation:} Each workgroup performs the local scan on the work tile, incorporating the root as it writes to global memory.
+\end{enumerate}
+\emph{Reduce-then-Scan} implementations also introduced improvements to the spine phase of the scan, which coalesced around a workgroup-level \emph{raking} technique first applied to inter-workgroup scan by Merrill and Grimshaw~\cite{}. Instead of handling arbitrary inputs recursively, the total workgroup occupancy $o$ is determined, and the input is partitioned into non-overlapping blocks processed serially by each workgroup. This approach limits the recursive depth of the global scan to two and reduces the global memory movement for the spine scan from $O(n/t)$ (incurred by recursion) to $O(3o)$. As a result, kernel launches are limited to three and total global memory movement is reduced to $O(3n + 3o) = O(3n)$.
+
 \subsubsection{Chained-Scan}
+Continuing the trend of global data movement optimization, the most recent work on global scan has been the \emph{Chained-Scan} architecture. First introduced by Yan et al. in \emph{StreamScan}, the key innovation of GPU chained scanning lies in its hybridization of parallel and serial strategies: achieving parallelism at the intra-workgroup level while minimizing global data movement through serial scan operations at the inter-workgroup level.
 
-StreamScan
+Instead of using kernel launches as inter-workgroup synchronization points, \emph{Chained-Scans} launch a single kernel that assigns work tiles in a serial order to workgroups. This shifts the problem from explicit synchronization to implicit synchronization via the order in which workgroups access global data. Each workgroup processes its assigned tile independently, waiting only for the result of the preceding reductions before continuing. This structure ensures that global memory traffic is minimized, as each element is read and written exactly once, achieving the theoretical minimum of $2n$.
 
-DecoupledLookback
+While \emph{StreamScan} successfully reduces per-element device memory accesses to two, it does not consistently achieve the expected throughput of $\text{memoryBandwidth}/2$ (saturate bandwidth?). This limitation arises because, in \emph{StreamScan}, a workgroup cannot post its reduction to global memory until it has ingested the reduction of the preceding workgroup. This sequential dependency creates a bottleneck, constraining the algorithm’s performance to the rate at which reductions can propagate through device memory—a process limited by the relatively high latency of GPU memory.
 
-\subsection{Missing Synchronization Primitive?}
-In a scan, the reduction at each element is dependent on the reduction of preceding elements. Thus, a serial dependency is created between workgroups whenever the number of elements in a scan operation exceeds the maximum size that can be processed by a single workgroup. Historically, hardware vendors have only recently begun to formally support inter-workgroup synchronization. Prior to the introduction of \emph{thread block clusters} on NVIDIA's Hopper architecture~\cite{}, we are unaware of any GPU programming framework\footnote{We are not aware of any prior inter-workgroup level barrier primitive in CUDA, OpenCL, GLSL, HLSL, or Metal.} that provided inter-workgroup synchronization primitives. Instead, the earlier \emph{Scan-then-Propagate} and \emph{Reduce-then-Scan} architectures rely on kernel launches to act as inter-workgroup synchronization points~\cite{}.
+Building on \emph{StreamScan}, Merrill and Garland introduced the \emph{Decoupled Lookback} technique to address the bottleneck created by these sequential dependencies. Unlike \emph{StreamScan}, where reductions and dependency resolution occur sequentially, \emph{Decoupled Lookback} separates these processes.In \emph{Decoupled Lookback}, each workgroup posts its reduction to device memory and then enters the “lookback” phase. During this phase, the workgroup performs a serial traversal backward through preceding workgroup reductions stored in device memory. To manage inter-workgroup synchronization, bit-packed status flags are used to indicate the state of each workgroup’s reduction.
+
+TODO Cleanup, add O(n) on global data movement during the lookback phase etc.
+
+\subsection{Ideal Scan Architecture}
+RTS
+More portable
+slower
+handling arbitrary inputs can be awkward
+
+Chained Scan
+Faster
+2n data movement + serial ordering faclitates in-situ behavior
+naturally extends to arbitrary data
+not portable, relies on something called forward progress guarantees
+
+Chained has lots of advantages, it would be great if it was portable.
 
 \subsection{Why does \emph{Chained-Scan} Rely on Forward Progress Guarantees?}
+TODO rewrite
 The \emph{Chained-Scan} architecture operates in the middle ground between the absence of inter-workgroup synchronization and formal inter-workgroup synchronization support. Rather than relying on explicit synchronization primitives, it leverages a combination of atomic operations and a property of the hardware's workgroup scheduling model known as a \emph{forward progress guarantee}. Atomics enable coherent communication between workgroups, while the \emph{forward progress guarantee} (FPG) ensures that all active workgroups will eventually make progress towards termination, precluding scenarios where a workgroup is scheduled in a manner that starves another workgroup of execution time.
 
 In \emph{Chained-Scan}, workgroups operate within a producer-consumer framework: each workgroup produces the reduction of its assigned work tile, and every workgroup (except the first) must consume the reductions produced by all preceding workgroups to complete the scan. To guarantee that no workgroup begins scanning a tile for which the preceding reduction may be unavailable, \emph{Chained-Scan} assigns work tiles using atomic increment operations rather than assignment based on workgroup index. Once a workgroup acquires its tile, it computes the tile’s reduction, atomically posts the result into global memory, and then waits for preceding reductions to appear in global memory. It is this waiting phase that necessitates FPG. Because workgroups do not execute in physical lockstep (obvious?), some may begin waiting before others have finished their calculations. Without FPG, there is a risk that a workgroup which finishes early could remain indefinitely scheduled in a waiting state, blocking progress by the workgroup responsible for producing the needed reduction and ultimately causing a deadlock.
@@ -203,6 +220,7 @@ As an illustrative example, consider a scan operation which requires exactly two
 Although NVIDIA formalized FPG down to the subgroup level beginning with the Volta architecture---and FPG was likely already present at the workgroup level on at least NVIDIA's Fermi and AMD's TeraScale2 architectures~\cite{}---it remains absent on some contemporary hardware, most notably certain ARM-based chips, including Apple's M-series GPUs~\cite{10.1145/3485508}. Our testing shows that, at best, attempting to run \emph{Chained-Scan} without FPG results in mega-bad\footnote{Need to gather data on the distribution of M1 Pro time on Decoupled Lookback instead of the average time. It's also unclear why the test did not trigger Metal's timeout device recovery}, and at worst, risks the afformentioned TDR and subsequent program crash. This risk is further exacerbated by the fact that, no major graphics API currently provides developers an FPG hardware capability query\footnote{To the best of our knowledge D3D12, Vulkan, and Metal do not have a query for FPG}. As a result, when implementing scan operations in a shading environment—where cross-vendor, cross-architecture portability is essential—uncertainty surrounding FPG capability and its catastrophic failure mode compels developers to fall back to the older, slower \emph{Reduce-then-Scan} approach.
 
 \subsection{Earlier Attempts at Portability}
+Scalar fallback here.
 
 \section{Design}
 \subsection{Goals (These subsection headers can be removed later if necessary)}
@@ -233,10 +251,14 @@ Although our goal is to create a fully portable and highly performant scan imple
 \end{algorithm}
 
 \subsection{Intra-Workgroup Implementation}
-(TODO: Try Reduce-Then-Scan on low spec hardware.)
-Our intra-workgroup implementation is a variation of the \emph{3D-Matrix Scan} (3DMS) introduced by Yan et al.~\cite{}, with adaptations to enhance portability. Similar to 3DMS, we split the work tile into non-overlapping blocks, which are distributed to each subgroup. However, unlike CUDA, WGSL lacks a \emph{volatile} qualifier for shared memory, which prevents us from loading items into shared memory and transposing them without inserting a barrier. However, placing a barrier disrupts latency hiding by separating the high-latency global memory load from the subsequent transpose and scan computation. To address this, we load data directly into registers and \emph{vectorize} the input. This approach preserves a \emph{coalesced} but vector-strided loading pattern. For each vector, a thread performs a serial scan across the vector, then participates in a subgroup scan. Although this method results in less efficient subgroup scan computation, $\frac{p}{vs}$ subgroup scans versus one, it elides the barrier and significantly reduces the kernel's shared memory footprint. Transposing in shared memory would require a work-tile-sized shared memory allocation, whereas our approach relies more heavily on registers, which are generally more abundant than shared memory, especially on low-spec hardware. As a result, we consider this tradeoff worthwhile.
+Our intra-workgroup implementation is most similar to the \emph{CUDPP} scan kernel \cite{}, with adaptations to enhance portability. It consists of three phases:
+\begin{enumerate}
+  \item
+\end{enumerate}
 
-Once completed, each subgroup posts its reduction into shared memory, then participates in a workgroup-wide scan. Because the WebGPU specification supports subgroup sizes $s \text{ where } s = 2^k, \, k \in [2, 7]$, and on some hardware, the subgroup size can vary between kernel launches, it is imperative to use a scan implementation which can accomodate all subgroup sizes. (More) We use a log base $s$ Ladner-Fischer scan with Merrill-Grimshaw conflict avoidance that embeds Kogge-Stone subgroup scans~\cite{}. This network has several advantages: minimal depth $log_s n$; asymptotically optimal $O(n)$ size; $s$-way conflict (seems bad, but actually turns into broadcast?).
+Similar to 3DMS, we split the work tile into non-overlapping blocks, which are distributed to each subgroup. However, unlike CUDA, WGSL lacks a \emph{volatile} qualifier for shared memory, which prevents us from loading items into shared memory and transposing them without inserting a barrier. Placing a barrier disrupts latency hiding by separating the high-latency global memory load from the subsequent transpose and scan computation. To address this, we load data directly into registers and \emph{vectorize} the input. This approach preserves a \emph{coalesced} but vector-strided loading pattern. For each vector, a thread performs a serial scan across the vector, then participates in a subgroup scan. Although this method results in vectors per thread $v$ subgroup scans, it elides the barrier and significantly reduces the kernel's shared memory footprint, as only the subgroup reduction is placed into shared memory. Transposing in shared memory requires a work-tile-sized shared memory allocation, whereas our approach relies more heavily on registers, which are generally more abundant than shared memory, especially on low-spec hardware. Additionally, keeping scan elements in registers avoids shared-bank conflicts, further enhancing performance. As a result, we consider this tradeoff worthwhile.
+
+The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$, and on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer scan network embedded with Kogge-Stone subgroup scans to perform the scan on subgroup reductions. The upsweep phase of the Ladner-Fischer network follows a Brent-Kung construction; assuming shared memory bank widths equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ Merrill-Grimshaw style conflict avoidance~\cite{}. This network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; and exposure to bank conflicts is limited to cases where $s^2 < w$, as the network collapses to a single level when $s^2 \geq w$.
 
 \begin{algorithm}[htbp]
   \SetAlgoLined
@@ -283,7 +305,7 @@ Once completed, each subgroup posts its reduction into shared memory, then parti
 \end{algorithm}
 
 \subsubsection{Size (Work) Efficiency}
-Recall that for a subgroup of size $s$, the Kogge-Stone scan has a size complexity of $s \log_2 s$. Given an input of size $n$, the work complexity is:
+For a subgroup of size $s$, the Kogge-Stone scan has a size complexity of $s \log_2 s$. Given an input of size $n$, the work complexity is:
 \begin{equation}
   \begin{aligned}[b]
     \text{Work} & = \underbrace{\vphantom{\sum_{k=0}^{\lceil \log_s n \rceil}}n}_{\text{fanout}}
@@ -299,7 +321,7 @@ Recall that for a subgroup of size $s$, the Kogge-Stone scan has a size complexi
 \end{equation}
 
 \subsubsection{Depth}
-Recall that a Kogge-Stone scan has a depth of $\log_2 s$ Thus, the total depth of the scan is:
+The Kogge-Stone scan has a depth of $\log_2 s$ Thus, the total depth of the scan is:
 \begin{equation}
   \begin{aligned}[b]
     \text{Depth} & = \underbrace{\lceil \log_s n \rceil}_{\text{loop iterations}}
@@ -308,7 +330,7 @@ Recall that a Kogge-Stone scan has a depth of $\log_2 s$ Thus, the total depth o
                  & = \log_2 n + O(1).
   \end{aligned}
 \end{equation}
-Minimal depth is preserved regardless of the subgroup size. However, this result can be somewhat misleading, as the depth incurred during the subgroup portion of the scan requires no barrier, whereas the main loop incurs a workgroup-wide barrier at each iteration. Consequently, while the theoretical depth remains constant across subgroup sizes, smaller subgroups tend to perform worse in practice due to the increased relative cost of synchronization and the overhead of additional iterations in the main loop.
+While minimal depth is preserved regardless of the subgroup size, this result can be somewhat misleading, as the depth incurred during the subgroup portion of the scan requires no barrier, whereas the main loop incurs a workgroup-wide barrier at each iteration. Consequently, while the theoretical depth remains constant across subgroup sizes, smaller subgroups tend to perform worse in practice due to the increased relative cost of synchronization and the overhead of additional iterations in the main loop.
 \subsection{Full Algorithm}
 
 \section{Experimental Setup}
@@ -322,7 +344,7 @@ Minimal depth is preserved regardless of the subgroup size. However, this result
 \subsection{Limits on Speed-of-Light Performance}
 There are a number of factors which may preclude speed-of-light performance, but most salient is the fairness of the scheduling model. In \emph{Decoupled-Fallback}, a work tile which is late due to unfairness is indistinguishable from one which is deadlocking, so as a scheduler becomes increasingly unfair, it incurs an increasing number of redundant fallbacks. Consider a hardware with a workgroup occupancy denoted by $o$, and let $f$ represent the probability that a fallback operation occurs at a particular lookback step. Because the number of lookback steps is bounded by $o$, the expected number of fallback operations is approximately $fo$. This results in a factor of $fo$ increase in global memory reads and a factor of $fo\log{n}$ increase in work.
 
-This increased sensitivity to fairness exacerabtes existing issues which negatively impact the performance of previous scan architectures. On hardware that lacks sufficient compute power to be memory-bandwidth bound, the additional work incurred by redundant fallback reductions is particularly deleterious. High atomic update latency further compounds the problem: as inter-workgroup communication time grows, the minimum delay before updates become visible to dependent workgroups also increases. This, in turn, raises the number of lookback steps that may be needed and potentially leads to redundant fallbacks.
+This increased sensitivity to fairness exacerabtes existing issues which negatively impact the performance of previous scan architectures, namely lack of compute, and slow atomic update latency. On hardware that lacks sufficient compute power to be memory-bandwidth bound, the additional work incurred by redundant fallback reductions is particularly deleterious. High atomic update latency further compounds the problem: as inter-workgroup communication time grows, the minimum delay before updates become visible to dependent workgroups also increases. This, in turn, raises the number of lookback steps that may be needed and potentially leads to redundant fallbacks.
 
 Fairness has been a priority in NVIDIA hardware since at least the Tesla architecture~\cite{}, but the extent to which it is implemented and prioritized by other vendors remains unclear. While our results on the least fair hardware demonstrate that \emph{Decoupled-Fallback} remains performant, this performance may not extend to scans involving more complex binary reduction operators or less capable hardware.
 \begin{acks}
