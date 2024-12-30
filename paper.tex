@@ -160,9 +160,6 @@ The study of \emph{scan} (\emph{parallel prefix}) networks traces back to the de
 \[
   \text{InclusiveScan}(y, +) = [1, 2, 3, 4, 5]
 \]
-
-Due to its significance in circuits and as a fundamental algorithmic primitive, scan enjoys a rich literature in both electrical engineering and computer science. Harris provides a taxonomy relating depth, fanout, and wire tracks. Hinze provides an algebra of scans. Snir proved that depth and size are related by . Fich proved that . Merill and Garland provide a comprehensive review of GPU scan implementations in . In light of this work(reword this), our focus is on exploring the progression of inter-workgroup (global) scan strategies and their fitness relative to our ideal architecture.
-
 Due to its significance in circuits and as a fundamental algorithmic primitive, scan has been extensively studied in both electrical engineering and computer science. Harris offers a taxonomy that relates depth, fanout, and wire tracks~\cite{}, while Hinze develops an algebraic framework for scans~\cite{}. Snir proved that \emph{depth} and \emph{size} are related by (fill in)~\cite{}, and Fich proved that among minimum depth scans Ladner-Fischer networks have optimal size. Finally, Merrill and Garland provide a comprehensive review of GPU scan implementations. In this work, we focus on the evolution of inter-workgroup (global) scan strategies and evaluate their suitability for our ideal architecture.
 
 \subsection{Evolution of Inter-Workgroup Scan Architectures}
