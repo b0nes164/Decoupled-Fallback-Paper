@@ -294,38 +294,45 @@
 	numpages     = 16,
 	keywords     = {gpu, heterogeneous computing, parallel sorting, radix sort, sorting}
 }
-@techreport{Sengupta2008,
-	title        = {Efficient Parallel Scan Algorithms for {GPU}s},
-	author       = {Shubhabrata Sengupta and Mark Harris and Michael Garland},
-	year         = 2008,
-	month        = {December},
-	number       = {NVR-2008-003},
-	url          = {https://research.nvidia.com/publication/2008-12_efficient-parallel-scan-algorithms-gpus},
-	institution  = {NVIDIA Corporation}
+@InCollection{Sengupta2008,
+  author =	 {Shubhabrata Sengupta and Mark Harris and Michael
+                  Garland and John D. Owens},
+  editor =	 {Jakub Kurzak and David A. Bader and Jack Dongarra},
+  booktitle =	 {Scientific Computing with Multicore and
+                  Accelerators},
+  title =	 {Efficient Parallel Scan Algorithms for many-core
+                  {GPU}s},
+  chapter =	 19,
+  publisher =	 {Taylor \& Francis},
+  year =	 2011,
+  series =	 {Chapman \& Hall/CRC Computational Science},
+  month =	 jan,
+  pages =	 {413--442},
+  doi =		 {10.1201/b10376-29},
 }
 @inproceedings{10.5555/1280094.1280110,
-	title        = {Scan primitives for {GPU} computing},
-	author       = {Sengupta, Shubhabrata and Harris, Mark and Zhang, Yao and Owens, John D.},
-	year         = 2007,
-	booktitle    = {Proceedings of the 22nd ACM SIGGRAPH/EUROGRAPHICS Symposium on Graphics Hardware},
-	location     = {San Diego, California},
-	publisher    = {Eurographics Association},
-	address      = {Goslar, DEU},
-	series       = {GH '07},
-	pages        = {97–106},
-	isbn         = 9781595936257,
-	numpages     = 10
-}
-@incollection{GPUGems3,
-	author    = {Mark Harris and S. Sengupta and John D. Owens},
-	title     = {Parallel Prefix Sum (Scan) with CUDA},
-	booktitle = {GPU Gems 3},
-	editor    = {Hubert Nguyen},
-	chapter   = {39},
-	pages     = {851--876},
-	publisher = {Addison Wesley},
-	month     = {August},
-	year      = {2007}
+  title =	 "Scan Primitives for {GPU} Computing",
+  author =	 "Shubhabrata Sengupta and Mark Harris and Yao Zhang
+                  and John D. Owens",
+  booktitle =	 "Proceedings of the 22nd ACM SIGGRAPH/EUROGRAPHICS
+                  Symposium on Graphics Hardware",
+  series =	 {GH '07},
+  year =	 2007,
+  month =	 aug,
+  pages =	 {97--106},
+  doi =		 {10.2312/EGGH/EGGH07/097-106},
+  }
+@InCollection{GPUGems3,
+  author =	 {Mark Harris and Shubhabrata Sengupta and John D.
+                  Owens},
+  editor =	 {Hubert Nguyen},
+  booktitle =	 {GPU Gems 3},
+  title =	 {Parallel Prefix Sum (Scan) with {CUDA}},
+  chapter =	 39,
+  publisher =	 {Addison Wesley},
+  month =	 aug,
+  year =	 2007,
+  pages =	 {851--876},
 }
 @inproceedings{10.1007/978-3-540-27764-4_11,
 	title        = {An Algebra of Scans},
@@ -439,8 +446,8 @@
 }
 @INPROCEEDINGS{5470477,
 	author={Xiao, Shucai and Feng, Wu-chun},
-	booktitle={2010 IEEE International Symposium on Parallel & Distributed Processing (IPDPS)}, 
-	title={Inter-block GPU communication via fast barrier synchronization}, 
+	booktitle={2010 IEEE International Symposium on Parallel & Distributed Processing (IPDPS)},
+	title={Inter-block GPU communication via fast barrier synchronization},
 	year={2010},
 	volume={},
 	number={},
@@ -450,8 +457,8 @@
 }
 @ARTICLE{4523358,
 	author={Lindholm, Erik and Nickolls, John and Oberman, Stuart and Montrym, John},
-	journal={IEEE Micro}, 
-	title={NVIDIA Tesla: A Unified Graphics and Computing Architecture}, 
+	journal={IEEE Micro},
+	title={NVIDIA Tesla: A Unified Graphics and Computing Architecture},
 	year={2008},
 	volume={28},
 	number={2},
@@ -469,8 +476,8 @@
 }
 @INPROCEEDINGS{1292373,
 	author={Harris, D.},
-	booktitle={The Thrity-Seventh Asilomar Conference on Signals, Systems & Computers, 2003}, 
-	title={A taxonomy of parallel prefix networks}, 
+	booktitle={The Thrity-Seventh Asilomar Conference on Signals, Systems & Computers, 2003},
+	title={A taxonomy of parallel prefix networks},
 	year={2003},
 	volume={2},
 	number={},
@@ -480,8 +487,8 @@
 }
 @INPROCEEDINGS{6158699,
 	author={Han, Tackdon and Carlson, David A.},
-	booktitle={1987 IEEE 8th Symposium on Computer Arithmetic (ARITH)}, 
-	title={Fast area-efficient VLSI adders}, 
+	booktitle={1987 IEEE 8th Symposium on Computer Arithmetic (ARITH)},
+	title={Fast area-efficient VLSI adders},
 	year={1987},
 	volume={},
 	number={},
@@ -508,8 +515,8 @@
 }
 @INPROCEEDINGS{930129,
 	author={Knowles, S.},
-	booktitle={Proceedings 15th IEEE Symposium on Computer Arithmetic. ARITH-15 2001}, 
-	title={A family of adders}, 
+	booktitle={Proceedings 15th IEEE Symposium on Computer Arithmetic. ARITH-15 2001},
+	title={A family of adders},
 	year={2001},
 	volume={},
 	number={},
