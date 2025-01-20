@@ -211,7 +211,7 @@ Introduced by Sengupta et al.~\cite{10.5555/1280094.1280110}, the \emph{Scan-the
 As each work tile depends on the reductions of previous tiles, the absence of an inter-workgroup barrier necessitates kernel launches to resolve inter-workgroup dependencies. This results in the three-phase construction of \emph{Scan-then-Propagate}, with each phase implemented as a separate kernel launch. This is further complicated in Sengupta et al.'s implementation, where arbitrarily large inputs are processed through recursion. As the size of a work tile limits the maximum number of elements processed without inter-workgroup dependency resolution, the three-phase scan structure must be recursively applied until the spine size fits within a single work tile. Thus, an input of size $n$ and a work tile of size $t$ results in a recursive depth of $\lceil \log_t n \rceil$, and $2\cdot\lceil \log_t n \rceil - 1$ kernel launches. Each recursive step $k$ processes $n/t^k$ tiles, leading to a total of $\sum_{k=1}^{\lceil \log_t n \rceil} n/t^k \approx (n - 1)/(t - 1)$ work tiles over all steps. Since each tile moves $4t$ data ($2t$ local scan, $2t$ propagation), the total global data movement is $O\left(\frac{4t(n - 1)}{t - 1}\right) = O(4n)$.
 
 \subsubsection{Reduce-then-Scan}
-If memory bandwidth resources are sufficiently scarce relative to compute, memory-bound algorithms like scan can profit by trading additional computation for reduced memory traffic. This trade-off led to a refinement of the \emph{Scan-Then-Propagate} strategy called \emph{Reduce-Then-Scan}~\cite{Merrill-Grimshaw, Ha-and-Han, Dotsenko, Breitbart}: by writing only the work tile reduction to global memory in the first phase and performing a redundant scan in the third phase, $n$ global data movement can be eliminated. Like \emph{Scan-then-Propagate}, \emph{Reduce-then-Scan} employs a three-phase approach using kernel launches to resolve dependencies. However, implementations of \emph{Reduce-then-Scan} introduced new ways of processing arbitrarily-large inputs that improved over the previous recursive technique.
+If memory bandwidth resources are sufficiently scarce relative to compute, memory-bound algorithms like scan can profit by trading additional computation for reduced memory traffic. This trade-off led to a refinement of the \emph{Scan-Then-Propagate} strategy called \emph{Reduce-Then-Scan}~\cite{Merrill-Grimshaw, Ha-and-Han, Dotsenko, Breitbart}: by writing only the work tile reduction to global memory in the first phase and performing a redundant scan in the third phase, $n$ global data movement can be eliminated. Like \emph{Scan-then-Propagate}, \emph{Reduce-then-Scan} employs a three-phase approach using kernel launches to resolve dependencies.
 \begin{enumerate}
   \item \textbf{Work Tile Reduction:} Each workgroup performs a pure reduction on its work tile partition, posting the result to global memory.
   \item \textbf{Spine Scan:} The spine is gathered and scanned to produce the root.
@@ -257,9 +257,9 @@ The challenges faced by \emph{Chained-Scan} are analogous to the \emph{Dining Ph
     \item Circular Ordering: A circular chain of tasks exists.
   \end{enumerate}
 \end{enumerate}
-Applying this schema to \emph{Chained-Scan}, workgroups correspond to "tasks" and work-tile reductions to "resources." Conditions 1-3 are easily satisfied due to the one-to-one mapping of work-tiles to workgroups. Similarly, condition 4a is met by the dependency relationships between work tiles, leaving condition 4b---circular ordering---as the key concern.
+Applying this schema to \emph{Chained-Scan}, workgroups correspond to "tasks" and work-tile reductions to "resources." Conditions 1–3 are satisfied due to the one-to-one mapping of work tiles to workgroups and the constraints of the GPU programming model. Similarly, condition 4a is met by the dependency relationships between work tiles, leaving condition 4b---circular ordering---as the key concern.
 
-Although the serial assignment of work tiles ensures that predecessor work tiles are either scheduled or completed, there is no guarantee that the corresponding reductions will be available when a workgroup begins its lookback. This uncertainty arises because workgroups are scheduled individually \thomas{Possibly confusing. . . and perhaps not even true? Not in lockstep?}, and a predecessor workgroup might not yet have had the opportunity to compute and post its reduction. In such cases, the dependent workgroup enters a waiting state, spinning until the reduction becomes available. During this waiting period, the spinning workgroup remains scheduled, consuming computational resources. Without \emph{forward-progress guarantees}, the scheduler may schedule the spinning workgroup indefinitely over its predecessor, preventing the predecessor from completing its reduction. This satisfies condition 4b, creating a circular dependency that results in deadlock within the kernel.
+Although the serial assignment of work tiles ensures that predecessor work tiles are either scheduled or completed, there is no guarantee that the corresponding reductions will be available before a workgroup begins its lookback. This uncertainty arises because workgroups are scheduled individually, and a predecessor workgroup might not yet have had the opportunity to compute and post its reduction. In such cases, the dependent workgroup enters a waiting state, spinning until the reduction becomes available. During this waiting period, the spinning workgroup remains scheduled, consuming computational resources. Without \emph{forward-progress guarantees}, the scheduler may indefinitely prioritize the spinning workgroup over its predecessor, preventing the predecessor from completing its reduction. This creates a circular dependency, satisfying condition 4b and resulting in deadlock within the kernel.
 
 A \emph{forward-progress guarantee} (FPG) is a promise provided by the subgroup scheduler that all occupant subgroups (of possibly different workgroups) eventually make progress toward termination, preventing scenarios where a subgroup is starved of execution time. Sorensen et al.~\cite{barriers, 1, 2} provide the most comprehensive analysis of GPU schedulers. However, while they classify \emph{Chained-Scan} as an FPG-reliant algorithm, their primary focus is in exploring and formalizing progress models, rather than their application to any one algorithm. In the context of \emph{Chained-Scan} deadlocking, FPG prevents condition 4b by prohibiting indefinite scheduling of any single subgroup, thereby breaking the circular dependency chain.
 \thomas{Sorensen places Chained-Scan into the HSA category, but it is unclear if this is correct. The definition of HSA is \newline "Threads for which fair execution is guaranteed: The thread with the lowest id that has not yet terminated" \newline However, as Chained-Scan and other serially ordered algorithms no longer use the virtual ID provided by the workgroup scheduler, is fair execution still guaranteed under HSA? It seems that it should be classified under OBE\@.}
@@ -279,9 +279,9 @@ Although NVIDIA formalized FPG down to the intra-subgroup level beginning with t
 Exacerbating this issue is the fact that no major graphics API currently provides developers with a mechanism to query FPG support. This lack of transparency forces developers to design algorithms without clear knowledge of whether critical guarantees are available on the target hardware. In environments like shading languages, where cross-platform portability is required, this uncertainty compels developers to revert to older, less efficient strategies such as \emph{Reduce-Then-Scan}. Yet, in the absence of guaranteed forward progress, developers have little choice but to sacrifice performance for broader compatibility.
 
 \subsection{Earlier Attempts at Portability}
-Levien and Naur~\cite{Raph2021} made the first attempt at implementing a \emph{DecoupledLookback} approach without forward progress requirements in \emph{ScalarFallback}. By allowing a workgroup to access and operate on another tile’s data, \emph{ScalarFallback} targets Coffman et al.'s \emph{mutual exclusion} condition. Instead, each time a workgroup spins on a preceding tile, it advances a \emph{fallback} operation by incrementally consuming the blocking tile---one element at a time. Although this entails performing redundant work when the blocking tile is simply late but not deadlocking, it guarantees the termination of the algorithm because each workgroup can perform the reduction of any blocking tile, breaking the inter-workgroup dependency.
+Levien and Naur~\cite{Raph2021} made the first attempt at implementing a \emph{DecoupledLookback} approach without forward progress requirements in \emph{ScalarFallback}. By allowing a workgroup to access and operate on another tile’s data, \emph{ScalarFallback} targets Coffman et al.'s \emph{mutual exclusion} condition. Instead, each time a workgroup spins on a preceding tile, it advances a \emph{fallback} operation by incrementally consuming the blocking tile---one element at a time. Although this entails performing redundant work when the blocking tile is simply late but not blocking, it guarantees the termination of the algorithm because each workgroup can perform the reduction of any blocking tile, breaking the inter-workgroup dependency.
 
-\emph{ScalarFallback} suffers from two primary issues that impact its efficiency. First, the fallback reduction is performed serially by a single thread, progressing only when the workgroup engages in a waiting spin. This effectively takes $t$ spins to complete the fallback of a deadlocking $t$-sized tile. Moreover, because only a single thread is responsible for loading elements, the cache line associated with the loaded elements is severely underutilized, further degrading performance. Second, once the fallback is complete, the workgroup does not post its result to device memory. Consequently, every workgroup deadlocked by that tile must redundantly execute the fallback, wasting computational resources. While \emph{ScalarFallback} was able to achieve speed of light on hardware supporting FPG and executed correctly on hardware without FPG, its performance on the latter was inferior to that of \emph{Reduce-Then-Scan}.
+\emph{ScalarFallback} suffers from two primary issues that impact its efficiency. First, the fallback reduction is performed serially by a single thread, progressing only when the workgroup engages in a waiting spin. This effectively takes $t$ spins to complete the fallback of a blocking $t$-sized tile. Moreover, because only a single thread is responsible for loading elements, the cache line associated with the loaded elements is severely underutilized, further degrading performance. Second, once the fallback is complete, the workgroup does not post its result to device memory. Consequently, every workgroup deadlocked by that tile must redundantly execute the fallback, wasting computational resources. While \emph{ScalarFallback} was able to achieve speed of light on hardware supporting FPG and executed correctly on hardware without FPG, its performance on the latter was inferior to that of \emph{Reduce-Then-Scan}.
 
 \section{Decoupled-Fallback}
 \thomas{I've broken somewhat with the outline and moved the goals and non-goals section to somewhere in the introduction. I kept finding myself trying to write around it. I think the content there is good, but it's very awkward as it ended up so deep within the paper. The placement of this section here feels more natural, and seems to mirror other papers?}
@@ -289,26 +289,78 @@ Levien and Naur~\cite{Raph2021} made the first attempt at implementing a \emph{D
 
 \thomas{What I want to accomplish here is to go beyond saying "Here is our method. It works great." I want to show that these are the possible avenues to attack deadlocking . . . and exhaustively demonstrate that removing mutual exclusion is the best way to do it, under our given constraints.}
 Like \emph{Scalar-Fallback}, we choose \emph{mutual exclusion} as our approach to break deadlocking. \emph{Dependency relationships} and \emph{no preemption} are immutable characteristics of scan and the GPU programming model, eliminating them as viable avenues for breaking deadlocking. While it may be possible to break \emph{circular ordering} by designing tile sizes such that workgroups are mapped one-to-one to multiprocessors, doing so portably is infeasible. Moreover, vendor guidance on progress guarantees among multiprocessors is also lacking, leaving the same risks of deadlocking but at the multiprocessor level. While eliminating \emph{resource holding}---allowing workgroups to discard work tiles when they encounter a deadlock---is theoretically possible, it is strictly worse than eliminating \emph{mutual exclusion}, as it necessitates $t$ additional movements (discard-read-read versus read).
+\begin{algorithm}[htb]
+  \small
+  \SetAlgoLined
+  \KwIn{%
+    \texttt{in}[], \texttt{out}[], 
+    \texttt{tileBump}, 
+    \texttt{spine}[], 
+    \texttt{wg\_fallback}[], 
+    \texttt{wg\_lock}, 
+    \texttt{wg\_partials}[], 
+    \texttt{wg\_prev\_reduction},
+    \texttt{wg\_broadcast}, 
+  }
+  \KwOut{\texttt{out}[] fully inclusive scan of \texttt{in}[]}
 
-To maximize the efficiency of the fallback operation, we employ three strategies. First, although a lookback is performed by a single thread or subgroup, we want all threads in the workgroup to participate. To facilitate this, we use a workgroup-wide lock to allow threads participating in the lookback to signal the entire workgroup when a fallback is necessary. Second, we explicitly limit the number of times a workgroup may spin while waiting on a tile. If the maximum spin count is exceeded, the fallback operation is initiated. Although this approach still risks performing redundant fallbacks---since a work tile that is late is indistinguishable from one that is deadlocking---exposing the maximum spin count as a tunable parameter allows us to reduce the likelihood of false-positive fallbacks. Finally, after completing a fallback, we attempt to insert the value into the spine at the position of the deadlocking tile, preventing succeeding workgroups from initiating redundant fallbacks.
+  \If{$\textnormal{threadid.x} = 0$}{
+    \texttt{wg\_broadcast} $\gets$ \texttt{atomicAdd}(\&\texttt{tileBump}, 1)\;
+    \texttt{wg\_lock} $\gets$ \textnormal{LOCKED}\;
+  }
+  \textbf{barrier()}\;
 
-The viability of \emph{Decoupled-Fallback} relies on the same cache locality properties as \emph{Decoupled-Lookback}. Regardless of FPG, due to false positives, any given hardware will have a natural fallback-incidence rate $f$. Consequently, we expect memory bandwidth traffic to increase (and throughput to decrease) by $O(fn)$ to $O((2 + f)n)$. However, just as serial ordering guarantees that memory accesses to the spine fall within the $o$-width sliding window, memory accesses to the scan input are similarly guaranteed to fall within an $ot$-width sliding window, making them also highly likely to reside within some level of the cache. As we later empirically demonstrate, this cache residency significantly reduces the cost of memory access, such that the fallback operation is almost always bound by the compute required to reduce the blocking tile. As a pure reduction incurs very lower overhead, we observe throughput approaching $O(2n)$ on most devices.
+  \texttt{part\_id} $\gets$ \texttt{wg\_broadcast}\;
+
+  \textit{local\_vectors}: $\textnormal{array}\langle \textnormal{vec4}\langle u32\rangle, p\rangle$\;
+
+  \textbf{Load}(\texttt{in}, \texttt{part\_id}, \textit{local\_vectors})\;
+  \textbf{SubgroupRake}(\textit{local\_vectors})\;
+
+  \If{$\text{\normalfont highestRankLane}(\textnormal{threadid.x})$}{
+    \texttt{wg\_partials}[\textnormal{subgroup\_id}] $\gets$ \textit{local\_vectors}[\textnormal{final\_partial}]\;
+  }
+  \textbf{barrier()}\;
+
+  \textbf{WorkgroupWideScan}(\texttt{wg\_partials})\;
+  \textbf{barrier()}\;
+
+  \tcp{Decoupled Fallback}
+  \While{\texttt{wg\_lock} = \textnormal{LOCKED}}{
+    \textbf{Lookback}(\texttt{spine}, \texttt{wg\_prev\_reduction}, \texttt{wg\_lock})\;
+    \texttt{lock} $\gets$ \textbf{\texttt{workgroupUniformLoad}}(\&\texttt{wg\_lock})\;
+
+    \If{$\texttt{lock} = \textnormal{LOCKED}$}{
+      \textbf{FallbackReduce}(\texttt{in}, \texttt{wg\_fallback})\;
+      \textbf{FallbackInsertionAttempt}(\texttt{spine}, \texttt{wg\_prev\_reduction}, \texttt{wg\_lock})\;
+      \texttt{lock} $\gets$ \textbf{\texttt{workgroupUniformLoad}}(\&\texttt{wg\_lock})\;
+    }
+  }
+
+  \textbf{Write}(\texttt{out}, \textit{local\_vectors}, \texttt{wg\_partials}, \texttt{wg\_prev\_reduction}, \texttt{part\_id})\;
+
+  \caption{High-level Decoupled Fallback}
+\end{algorithm}
+To maximize the efficiency of the fallback operation, we employ three strategies. First, although a lookback is performed by a single thread or subgroup, we want all threads in the workgroup to participate. To facilitate this, we use a workgroup-wide lock to allow threads participating in the lookback to signal the entire workgroup when a fallback is necessary. Second, we explicitly limit the number of times a workgroup may spin while waiting on a tile. If the maximum spin count is exceeded, the fallback operation is initiated. Although this approach still risks performing redundant fallbacks---since a work tile that is late is indistinguishable from one that is blocking---exposing the maximum spin count as a tunable parameter allows us to reduce the likelihood of false-positive fallbacks. Finally, after completing a fallback, we attempt to insert the value into the spine at the position of the blocking tile, preventing succeeding workgroups from initiating redundant fallbacks.
+
+The viability of \emph{Decoupled-Fallback} relies on the same cache locality properties as \emph{Decoupled-Lookback}. Regardless of FPG, due to false positives, any given hardware will have a natural fallback-incidence rate $f$. Consequently, we expect memory bandwidth traffic to increase (and throughput to decrease) by $O(fn)$ to $O((2 + f)n)$. However, just as serial ordering guarantees that memory accesses to the spine fall within an $o$-width sliding window, memory accesses to the scan input are similarly guaranteed to fall within an $ot$-width sliding window, making them also highly likely to reside within some level of the cache. As we later empirically demonstrate, this cache residency significantly reduces the cost of memory access, such that the fallback operation is almost always bound by the compute required to reduce the blocking tile. As a pure reduction incurs very lower overhead, we observe throughput approaching $O(2n)$ on most devices.
 
 \section{Implementation}
 At a high level, our algorithmn follows a five phase construction:
-\begin{enumerate} 
+\begin{enumerate}
+  \item[(0)] \textbf {Initialization}: The first thread in the workgroup atomically acquires its work-tile by atomically incrementing a value in global memory.
   \item \textbf{Load Phase}: Each thread loads $p$ vectors, consuming the input in a subgroup-blocked ordering. For a subgroup size $s$ and vector size $v$, each subgroup processes a contiguous block of size $s \cdot p \cdot v$. 
   \item \textbf{Subgroup-Rake}: Each thread performs a private, serial scan across its vectors and then participates in $p$ raking subgroup scans. This allows the entire scan across the subgroup-block to be barrier-free and remain in registers. The final subgroup-block reduction is then posted to shared memory. 
-  \item \textbf{Workgroup-Wide Scan}: The workgroup collectively performs a scan across the subgroup reductions, writing the results back to shared memory upon completion. 
+  \item \textbf{Workgroup-Wide Scan}: The workgroup collectively performs a scan across the subgroup partial reductions, writing the results back to shared memory upon completion. 
   \item \textbf{Decoupled-Fallback}: The first subgroup in the workgroup performs a lookback operation, engaging in fallback operations if necessary. Once completed, it posts the results to shared memory for the workgroup to consume. 
   \item \textbf{Write Phase}: Each subgroup incorporates the results from the workgroup-wide scan and lookback operation to produce and write out the correct output. 
 \end{enumerate}
-Phases 1, 2, 3, and 5 comprise the intra-workgroup scan, following a \emph{Scan-then-Propagate} strategy. These phases are most similar to the \emph{CUDPP}~\cite{} scan kernel, with adaptations to enhance portability. Phase 4, \emph{Decoupled-Fallback}, is responsible for managing all inter-workgroup dependencies.
+Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3, and 5 comprise the intra-workgroup scan, following a \emph{Scan-then-Propagate} strategy. Phase 4, \emph{Decoupled-Fallback}, is responsible for managing all inter-workgroup dependencies.
 
 \subsection{Intra-Workgroup Portability Adaptations}
 As our loading and writing phase are typical of scan kernels, we focus here on our portability-specific adaptations. 
 \subsubsection{Subgroup-Raking}
-We desire the smallest intra-workgroup spine possible. Not only does this reduce shared memory usage, but it also directly impacts the number of workgroup barriers encountered during the workgroup-wide scan, as this number is proportional to the size of the local spine. While large subgroups are relatively insensitive to this effect, small subgroups are particularly affected (reference depth here). To address this, we perform $p$ raking iterations of subgroup Kogge-Stone scans, where the highest-ranked thread passes its output into each succeeding scan. For a workgroup of size $w$, this approach reduces the number of reductions that each subgroup must post from $p$ to $1$, and it decreases the size of the spine from $\frac{pw}{s}$ to $\frac{w}{s}$.
+We desire the smallest intra-workgroup spine possible. Not only does this reduce shared memory usage, but it also directly impacts the number of workgroup barriers encountered during the workgroup-wide scan, as this number is proportional to the size of the local spine. While large subgroups are relatively insensitive to this effect, small subgroups are particularly affected (reference depth here). To address this, we perform $p$ raking iterations of subgroup Kogge-Stone scans, where the highest-ranked thread passes its output into each succeeding scan. For a workgroup of size $w$, this approach reduces the number of partial reductions that each subgroup must post from $p$ to $1$, and it decreases the size of the spine from $\frac{pw}{s}$ to $\frac{w}{s}$.
 \begin{algorithm}[htbp]
   \small
   \SetAlgoLined
@@ -360,7 +412,7 @@ We desire the smallest intra-workgroup spine possible. Not only does this reduce
   \label{alg:example}
 \end{algorithm}
 \subsubsection{Workgroup-Wide Scan}
-The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer scan network embedded with Kogge-Stone subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a broadcast operation, resulting in no conflicts. Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; zero bank conflicts across all supported subgroup sizes. \footnote{Since we also require a workgroup-wide pure reduce operation, this can be achieved by omitting the fanout operation and substituting the subgroup Kogge-Stone scan with a subgroup butterfly reduction.}
+The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer scan network embedded with Kogge-Stone subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a broadcast operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase is negligible due to our overall thriftiness, including the deliberate retention of vectors in registers and the efficiency of subgroup raking. Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; zero bank conflicts across all supported subgroup sizes. \footnote{Since we also require a workgroup-wide pure reduce operation, this can be achieved by omitting the fanout operation and substituting the subgroup Kogge-Stone scan with a subgroup butterfly reduction.}
 
 \subsection{Decoupled-Fallback}
 To reiterate, the goal of a lookback is twofold: to determine the reduction of all preceding work tiles and to communicate those values to succeeding tiles to accelerate their own lookback operations. Following the \emph{Decoupled-Lookback} technique, we model the spine as a finite state machine, where each work tile comprising the spine may exist in one of three states:
@@ -369,204 +421,107 @@ To reiterate, the goal of a lookback is twofold: to determine the reduction of a
     \item \textbf{Ready}: The tile has completed its local reduction and posted it to global memory.
     \item \textbf{Inclusive}: The tile has completed its lookback and updated its posting to reflect the inclusive reduction.
 \end{itemize}
-Each lookback is, therefore, a traversal from the \emph{Ready} state to the \emph{Inclusive} state. To illustrate this process, we present a flowchart (SEE LOOKBACK FLOWCHART). Prior to the kernel launch, all tiles in the spine are initialized to the \emph{Not Ready} state. As shown in the dotted section of the flowchart, fallbacks occur when a workgroup encounters a blocking tile and the maximum spin count is exceeded.
+Each lookback is, therefore, a traversal from the \emph{Ready} state to the \emph{Inclusive} state. To illustrate this process, we present a flowchart (SEE LOOKBACK FLOWCHART). 
 
-\subsubsection{Tile State Implementation}
-To maintain a coherent view of the tile's state, two bits are required, corresponding to the three possible states described earlier. In \emph{Decoupled-Lookback}, Merrill and Garland propose two strategies for communicating tile state within a 32-bit value: Use two separate 32-bit values—one for the tile state and the other for the reduction value—combined with a \emph{memory fence}, ensuring that updating the tile state also synchronizes the reduction value. Use a single 64-bit value by bit-packing the tile state and reduction value, with updates managed via 64-bit atomics.
-
-In our case, neither are viable options. Due to a lack of support across backend APIs, WebGPU does not furnish developers with a memory model, and currently, 64-bit atomics are not supported. Moreover, 64-bit atomics are not supported across most mobile devices, and thus we do not consider their future support an appropriate option for our implementation. Instead, we use two 32-bit values and split the reduction into upper and lower 16-bit segments, reserving the two most significant bits of each segment to encode the tile state.
-\newline
-SPLIT BITS MINI DIAGRAM here
-\newline
-
-\begin{enumerate}
-  \item Idea: Split the reductions into multiple values; use separate values for local/inclusive instead of using flags to differentiate them.
-  \item Pro: Full 32 or theoretically 64 bits.
-  \item Pro: No memory model or 64 bit atomics required!
-  \item Pro: Can safely fallback insert without risking clobbering.
-  \item Con: 2x Memory usage
-  \item Con: Places subgroup functions adjacent to atomics, which may lead to \textbf{\textit{interesting}} behavior.
-\end{enumerate}
-
+\subsubsection{Decoupled-Fallback}
+\thomas{Given that "lock" has an extensive history of use in computer science and this is not that kind of lock, perhaps a better choice of phrase would be better. Updates to terminology incoming...}
+Prior to kernel launch, all tiles in the spine are initialized to the \emph{Not Ready} state. During partition index acquisition, we also initialize a shared memory \emph{control flag} to facilitate synchronization within the workgroup during the \emph{Decoupled-Fallback} phase. This flag governs both the initiation of fallback operations and the entry and exit of the entire phase, which begins immediately after the workgroup-wide scan over partial reductions is completed.
 \begin{figure}[h]
   \centering
   \includegraphics[width=\linewidth]{graphics/FlowChart.pdf}
-  \caption{TODO update for split}
+  \caption{Decoupled-Fallback}
 \end{figure}
+\begin{enumerate}
+  \item[(0)] \textbf{Posting Local Reduction:} Each workgroup posts its local reduction---the result of the workgroup-wide scan over partials---to global memory and updates its tile state to \emph{Ready}. If it is the first work tile, its local reduction \emph{is} its inclusive reduction. In this case, the workgroup updates its tile state directly to \emph{Inclusive} and bypasses the lookback entirely.
 
-\subsubsection{Full Algorithm}
+  \item \textbf{Initialization:}
+  \begin{itemize}
+      \item The control flag, initialized to \emph{Locked}, signals that the workgroup should enter the lookback phase.
+      \item Each workgroup initializes a \emph{previous reduction} variable with the identity element of the monoid to hold the accumulated reductions of preceding tiles.
+      \item The workgroup prepares to traverse the spine, starting with its immediate predecessor tile.
+  \end{itemize}
 
-\begin{algorithm}[htbp]
-  \tiny
-  \SetAlgoLined
-  \DontPrintSemicolon
-  
-  \KwIn{%
-    \emph{Partition ID} $part\_id$, 
-    \emph{Number of lanes} $lane\_count$, 
-    \emph{Workgroup-shared lock} $wg\_lock$, 
-    \emph{Atomic reduction array} \texttt{reduction}[], 
-    \emph{Local partial reductions} $wg\_reduce[]$, 
-    \emph{Constants:} $MAX\_SPIN\_COUNT, FLAG\_MASK, FLAG\_NOT\_READY, FLAG\_INCLUSIVE, FLAG\_READY, ALL\_READY, \dots$
-  }
-  \KwOut{Possible updates to $prev\_red$ or partial progress before fallback.}
-  
-  \If(\tcp*[h]{Only needed if not the first partition}){$part\_id \neq 0$}{
-    $\,prev\_red \gets 0$\;
-    $\,lookback\_id \gets part\_id - 1$\;
-    $\,lock \gets \texttt{workgroupUniformLoad}(\&wg\_lock)$\;
-  
-    \While(\tcp*[h]{Spin until we can proceed or must fallback}){$lock = \textnormal{LOCKED}$}{
-      \If(\tcp*[h]{Only threads within the subgroup size do checks}){$threadid.x < lane\_count$}{
-        $\,spin\_count \gets 0$\;
-        \While{$spin\_count < MAX\_SPIN\_COUNT$}{
-          $\,flag\_payload \gets \texttt{select}\bigl(
-             0,\;
-             \texttt{atomicLoad}(\&\texttt{reduction}[\,lookback\_id\,][\,threadid.x\,]),\;
-             threadid.x < \textnormal{SPLIT\_MEMBERS}
-           \bigr)$\;
-  
-          \If{$\texttt{subgroupBallot}\bigl((\,flag\_payload \,\&\, FLAG\_MASK) > FLAG\_NOT\_READY\bigr).x = ALL\_READY$}{
-            $\,incl\_bal \gets \texttt{subgroupBallot}\bigl(
-               (\,flag\_payload \,\&\, FLAG\_MASK) = FLAG\_INCLUSIVE
-             \bigr).x$\;
-  
-            \If{$incl\_bal \neq 0$}{
-              \tcp{Wait for all lanes to show FLAG\_INCLUSIVE}
-              \While{$incl\_bal \neq ALL\_READY$}{
-                $\,flag\_payload \gets \texttt{select}\bigl(
-                  0,\;
-                  \texttt{atomicLoad}(\&\texttt{reduction}[\,lookback\_id\,][\,threadid.x\,]),\;
-                  threadid.x < \textnormal{SPLIT\_MEMBERS}
-                \bigr)$\;
-                $\,incl\_bal \gets \texttt{subgroupBallot}\bigl(
-                  (\,flag\_payload \,\&\, FLAG\_MASK) = FLAG\_INCLUSIVE
-                \bigr).x$\;
-              }
-              $\,prev\_red \gets prev\_red + \texttt{join}\bigl(
-                 flag\_payload \,\&\, \textnormal{VALUE\_MASK},\;threadid.x
-               \bigr)$\;
-  
-              \If{$threadid.x < \textnormal{SPLIT\_MEMBERS}$}{
-                $\,t \gets \texttt{split}\bigl(
-                  prev\_red + wg\_reduce[\mathit{spine\_size}-1],\;threadid.x
-                \bigr) \,\vert\, FLAG\_INCLUSIVE$\;
-                $\texttt{atomicStore}\bigl(
-                  \&\texttt{reduction}[\,part\_id\,][\,threadid.x\,],\; t
-                \bigr)$\;
-              }
-              \If{$threadid.x = 0$}{
-                $\,wg\_lock \gets \textnormal{UNLOCKED}$\;
-                $\,wg\_broadcast \gets prev\_red$\;
-              }
-              \textbf{break}\;  % Break out of spin loop
-            }
-            \Else{
-              $\,prev\_red \gets prev\_red + \texttt{join}\bigl(
-                 flag\_payload \,\&\, \textnormal{VALUE\_MASK},\;threadid.x
-               \bigr)$\;
-              $\,spin\_count \gets 0$\;
-              $\,lookback\_id \gets lookback\_id - 1$\;
-            }
-          }
-          \Else{
-            $\,spin\_count \gets spin\_count + 1$\;
-          }
-        }
-        \If(\tcp*[h]{Escalate fallback if spinning too long}){%
-          $\,threadid.x = 0 \,\wedge\, spin\_count = MAX\_SPIN\_COUNT$}{
-          $\,wg\_broadcast \gets lookback\_id$\;
-        }
-      }
-      \tcp{(At this point, if still locked, we consider fallback.)}
-      $\,lock \gets \texttt{workgroupUniformLoad}(\&wg\_lock)$\;
-      \textbf{break}\;
-    }
-  }
-  \caption{“Lookback” portion of the single-subgroup scan.}
-  \label{alg:lookback-portion}
-\end{algorithm}
-  
-\begin{algorithm}[htbp]
-  \tiny
-  \SetAlgoLined
-  \DontPrintSemicolon
-  
-  \KwIn{%
-    \emph{Workgroup lock} $wg\_lock$, 
-    \emph{Current broadcast index} $wg\_broadcast$, 
-    \emph{Local partial} $prev\_red$, 
-    \emph{Reduction array} \texttt{reduction}[], 
-    \emph{Local partials} $wg\_reduce[]$, 
-    \emph{Constants:} $FLAG\_MASK, FLAG\_READY, FLAG\_INCLUSIVE, \dots$
-  }
-  \KwOut{%
-    Possibly unlocked $wg\_lock$ and updated partition's inclusive data
-  }
-  
-  \tcp{Check if we're still locked and must fallback}
-  \If{$\textnormal{lock} = \textnormal{LOCKED}$}{
-    $\,fallback\_id \gets wg\_broadcast$\;
-  
-    \tcp{Invoke the fallback reduce subroutine}
-    $\,f\_red \gets \textbf{FallbackReduce}\bigl(fallback\_id,\, s\_offset,\, \dots\bigr)$\;
-  
-    \If{$threadid.x < lane\_count$}{
-      $\,f\_split \gets \texttt{split}(f\_red,\, threadid.x)\,\vert\,
-        \texttt{select}(FLAG\_READY,\, FLAG\_INCLUSIVE,\,(fallback\_id=0))$\;
-  
-      \tcp{Atomically update if in SPLIT\_MEMBERS}
-      $\,f\_payload \gets 0$\;
-      \If{$threadid.x < \textnormal{SPLIT\_MEMBERS}$}{
-        $\,f\_payload \gets \texttt{atomicMax}\bigl(
-           \&\texttt{reduction}[fallback\_id][threadid.x],\, f\_split
-         \bigr)$\;
-      }
-  
-      $\,incl\_found \gets \Bigl(
-         \texttt{subgroupBallot}\bigl((\,f\_payload \,\&\, FLAG\_MASK) = FLAG\_INCLUSIVE\bigr).x 
-         = \textnormal{ALL\_READY}
-       \Bigr)$\;
-  
-      \If{$incl\_found$}{
-        $\,prev\_red \gets prev\_red + \texttt{join}\bigl(
-           f\_payload \,\&\, \textnormal{VALUE\_MASK},\;threadid.x
-         \bigr)$\;
-      }
-      \Else{
-        $\,prev\_red \gets prev\_red + f\_red$\;
-      }
-  
-      \If(\tcp*[h]{Either first partition or all splits are inclusive}){$(fallback\_id=0)\,\vee\,(incl\_found)$}{
-        \If{$threadid.x < \textnormal{SPLIT\_MEMBERS}$}{
-          $\,t \gets \texttt{split}\bigl(
-             prev\_red + wg\_reduce[\mathit{spine\_size}-1],\;threadid.x
-           \bigr)\,\vert\,FLAG\_INCLUSIVE$\;
-          $\texttt{atomicStore}\Bigl(
-             \&\texttt{reduction}[part\_id][threadid.x],\, t
-           \Bigr)$\;
-        }
-        \If{$threadid.x = 0$}{
-          $\,wg\_lock \gets \textnormal{UNLOCKED}$\;
-          $\,wg\_broadcast \gets prev\_red$\;
-        }
-      }
-      \Else{
-        $\,lookback\_id \gets lookback\_id - 1$\;
-      }
-    }
-  
-    $\,lock \gets \texttt{workgroupUniformLoad}(\&wg\_lock)$\;
-  }
-  
-  \caption{“Fallback” logic, calling \textbf{FallbackReduce} if still locked.}
-  \label{alg:fallback-logic}
-\end{algorithm}
-  
+  \item \textbf{Lookback:}
+  \begin{itemize}
+      \item The workgroup queries the state of the current tile. 
+      \item If the tile is in the \emph{Ready} state, the workgroup accumulates the value and moves to the preceding tile, repeating this step.
+      \item If the tile is in the \emph{Inclusive} state, the workgroup accumulates the value and proceeds directly to step 5.
+      \item If the tile is in the \emph{Not Ready} state, the workgroup spins for a limited number of iterations, defined by the \emph{Maximum Spin Count}. If the spin count exceeds the \emph{Maximum Spin Count}, the workgroup signals a fallback operation using the control flag and proceeds to the next step.
+  \end{itemize}
+
+  \item \textbf{Fallback:}
+  \begin{itemize}
+      \item The workgroup computes the reduction of the blocking tile by processing the corresponding elements directly.
+      \item Once the fallback reduction is complete, the workgroup \emph{attempts} to post the reduction to global memory and update the tile's state to \emph{Ready}.
+      \item As this update attempt is performed atomically, the workgroup reads back the blocking tile's immediate state:
+      \begin{itemize}
+          \item If the state is \emph{Inclusive}, the fallback value is discarded, and the workgroup accumulates the value before proceeding to step 5.
+          \item If the blocking tile is the first tile in the spine, the workgroup has reached the start of the spine and proceeds to step 5.
+          \item Otherwise, the workgroup resumes the lookback, starting with the preceding tile.
+      \end{itemize}
+  \end{itemize}
+
+  \item \textbf{Exit:}
+  \begin{itemize}
+      \item Once the lookback or fallback is complete, the workgroup posts its inclusive reduction to global memory, transitioning its tile state to \emph{Inclusive}.
+      \item The \emph{previous reduction} is also posted to shared memory for the workgroup to consume and propagate as necessary.
+      \item The control flag is updated to \emph{Unlocked} to signal the exit of the \emph{Decoupled-Fallback} phase, allowing subsequent operations to proceed.
+  \end{itemize}
+\end{enumerate}
+
+\subsubsection{Tile State Implementation}
+To maintain a coherent view of the tile's state, two bits are required. In \emph{Decoupled-Lookback}, Merrill and Garland propose two strategies for communicating tile state and 32-bit reduction value: Two separate 32-bit values---one for the tile state and the other for the reduction value---with updates using a \emph{memory fence}. One single 64-bit value, bit-packing the tile state and reduction value, with updates via 64-bit atomics.
+In our case, neither are viable options. Due to a lack of support across backend APIs, WebGPU does not furnish developers with a memory model, and currently, 64-bit atomics are not supported. Moreover, 64-bit atomics are not supported across most mobile devices, and thus we do not consider their future support an appropriate option for our implementation. Instead, we use two 32-bit values and split the reduction into upper and lower 16-bit segments, reserving the two most significant bits of each 32-bit value to encode the tile state.
+\newline
+SPLIT BITS MINI DIAGRAM here
+\newline
+To accommodate split values, we use a single subgroup for the lookback, leveraging subgroup \emph{ballot} to verify that the split value state is consistent across threads, and subgroup \emph{shuffle} to join and split reductions as needed. Since this method requires one thread per 16 bits, and the minimum subgroup size in the WebGPU specification is 4, it supports both 32-bit and 64-bit values. Notably, our approach extends support to 64-bit scans, which would not be possible even with 64-bit atomics.\footnote{Although native 64-bit values are not currently supported by the WebGPU specification, their future inclusion is anticipated.}
+
+In the context of fallbacks, the blocking tile can exist in any of three states—\emph{Not Ready}, \emph{Ready}, or \emph{Inclusive}—due to several factors. A false-positive fallback may occur when the blocking tile completes its local or inclusive reduction before the fallback finishes. Additionally, multiple workgroups are allowed to perform fallbacks on the same blocking tile, meaning another workgroup may have already updated the tile state. To handle these scenarios, we require a tile state representation and an accompanying atomic operation that ensures a fallback can safely transition a tile's state to \emph{Ready} without overwriting a more advanced state. This challenge is further compounded by the fact that in WebGPU, the correctness of atomic \emph{Compare-and-Swap} is not guaranteed across all devices, prohibiting our use. Instead, we encode the tile state within the most significant bits of the split value and enforce a strict state ordering: \emph{Inclusive} $>$ \emph{Ready} $>$ \emph{Not Ready}. This design enables the use of atomic \emph{Maximum}, which inherently respects the state hierarchy, to safely insert values.
+\thomas{Possibly a blurb here about no volatile, so we use all atomics?}
+
+\section{Evaluation}
+256 threads, 16 elements per thread. Shared memory requirements. RTS implementation shares an identical local implementation. Uses Merrill-Grimshaw style raking, with our own occupancy discovery technique. 
+
+\subsection{Comparison to Reduce-Then-Scan}
+
+\subsection{How (un)fair is fair?}
+Show the stats of each device. How many lookbacks?  How many fallbacks initiated? How many successful fallbacks?
+
+\subsection{Emulated Deadlocking}
+Show the performance of devices as we artificially increase the fallback-incidence rate.
+
+\section{Discussion}
+
+\subsection{Trade-offs}
+
+\subsection{Limits on Speed-of-Light Performance}
+There are a number of factors which may preclude speed-of-light performance, but most salient is the fairness of the scheduling model. In \emph{Decoupled-Fallback}, a work tile which is late due to unfairness is indistinguishable from one which is blocking, so as a scheduler becomes increasingly unfair, it incurs an increasing number of redundant fallbacks. Consider a hardware with a workgroup occupancy denoted by $o$, and let $f$ represent the probability that a fallback operation occurs at a particular lookback step. Because the number of lookback steps is bounded by $o$, the expected number of fallback operations is approximately $fo$. This results in a factor of $fo$ increase in global memory reads and a factor of $fo\log{n}$ increase in work.
+
+This increased sensitivity to fairness exacerbates existing issues which negatively impact the performance of previous scan architectures, namely lack of compute, and slow atomic update latency. On hardware that lacks sufficient compute power to be memory-bandwidth bound, the additional work incurred by redundant fallback reductions is particularly deleterious. High atomic update latency further compounds the problem: as inter-workgroup communication time grows, the minimum delay before updates become visible to dependent workgroups also increases. This, in turn, raises the number of lookback steps that may be needed and potentially leads to redundant fallbacks.
+
+\thomas{Somewhere in here is perfect for Raph's commentary on the speed of atomics on different hardware. Once we have it, we can retool this section around it.}
+
+\section{Cut material, can be readded if we have enough space}
+
+To ensure consistency with our coding artifact and promote cross-vendor compatibility, we use the terminology of the WebGPU specification.
+\setlength{\tabcolsep}{3pt}
+\begin{table}[h]
+  \centering
+  \caption{Non-Exhaustive Equivalent Terminology}
+  \label{tab:terminology}
+  \begin{tabular}{lcccc}
+    \toprule
+    \textbf{WGSL}   & \textbf{GLSL}  & \textbf{HLSL}   & \textbf{Metal}     & \textbf{CUDA} \\ \midrule
+    Subgroup        & Subgroup       & Wave            & SIMD-group         & Warp          \\
+    Workgroup       & Workgroup      & Group           & Threadgroup        & Block         \\
+    Workgroup       & Shared         & Groupshared     & Threadgroup        & Shared        \\ \bottomrule
+  \end{tabular}
+\end{table}
+
+Despite its limited suitability within the oversubscription paradigm, inter-workgroup synchronization holds significant performance potential, as many GPU-friendly algorithms—such as \emph{example}, \emph{example}, and \emph{scan}---can benefit from a trade-off that eliminates the costly overhead of kernel-launch synchronization. This potential was explored in prior work~\cite{}, culminating in Gupta et al.’s~\cite{} \emph{Persistent Thread} paradigm. Rather than oversubscribing processors by launching $b$ workgroups, each consuming a single \emph{work tile}, this approach \emph{discovers} the total workgroup occupancy across the device $o$---referred to by Gupta et al. as a \emph{maximal launch}---and launches $o$ workgroups, each responsible for processing $b/o$ work tiles. Limiting the launch size allows the workgroups to always remain on chip, eliding context switching, and thus facilitating an efficient inter-workgroup barrier.
 
 \subsection{Work Efficiency and Depth}
-\subsubsection{Subgroup Raking}
-
 \subsubsection{Size Agnostic Scan}
 For a subgroup of size $s$, the Kogge-Stone network has a work complexity of $s \log_2 s$. Given an input of size $n$, the work complexity is:
 \begin{equation}
@@ -592,52 +547,6 @@ Since the subgroup size remains constant within each kernel launch, the final wo
   \end{aligned}
 \end{equation}
 While minimal depth is preserved regardless of the subgroup size, this result can be somewhat misleading, as the depth incurred during the subgroup portion of the scan requires no barrier, whereas the main loop incurs a workgroup-wide barrier at each iteration. Consequently, while the theoretical depth remains constant across subgroup sizes, smaller subgroups tend to perform worse in practice due to the increased relative cost of synchronization and the overhead of additional iterations in the main loop.
-
-\subsubsection{Full Algorithm}
-
-\section{Evaluation}
-256 threads, 16 elements per thread. Shared memory requirements. RTS implementation shares an identical local implementation. Uses Merrill-Grimshaw style raking, with our own occupancy discovery technique. 
-
-\subsection{Comparison to Reduce-Then-Scan}
-
-\subsection{How (un)fair is fair?}
-Show the stats of each device. How many lookbacks?  How many fallbacks initiated? How many successful fallbacks?
-
-\subsection{Emulated Deadlocking}
-Show the performance of devices as we artificially increase the fallback-incidence rate.
-
-\section{Discussion}
-
-\subsection{Trade-offs}
-
-\subsection{Limits on Speed-of-Light Performance}
-There are a number of factors which may preclude speed-of-light performance, but most salient is the fairness of the scheduling model. In \emph{Decoupled-Fallback}, a work tile which is late due to unfairness is indistinguishable from one which is deadlocking, so as a scheduler becomes increasingly unfair, it incurs an increasing number of redundant fallbacks. Consider a hardware with a workgroup occupancy denoted by $o$, and let $f$ represent the probability that a fallback operation occurs at a particular lookback step. Because the number of lookback steps is bounded by $o$, the expected number of fallback operations is approximately $fo$. This results in a factor of $fo$ increase in global memory reads and a factor of $fo\log{n}$ increase in work.
-
-This increased sensitivity to fairness exacerbates existing issues which negatively impact the performance of previous scan architectures, namely lack of compute, and slow atomic update latency. On hardware that lacks sufficient compute power to be memory-bandwidth bound, the additional work incurred by redundant fallback reductions is particularly deleterious. High atomic update latency further compounds the problem: as inter-workgroup communication time grows, the minimum delay before updates become visible to dependent workgroups also increases. This, in turn, raises the number of lookback steps that may be needed and potentially leads to redundant fallbacks.
-
-\thomas{Somewhere in here is perfect for Raph's commentary on the speed of atomics on different hardware. Once we have it, we can retool this section around it.}
-
-
-
-\section{Cut material, can be readded if we have enough space}
-
-To ensure consistency with our coding artifact and promote cross-vendor compatibility, we use the terminology of the WebGPU specification.
-\setlength{\tabcolsep}{3pt}
-\begin{table}[h]
-  \centering
-  \caption{Non-Exhaustive Equivalent Terminology}
-  \label{tab:terminology}
-  \begin{tabular}{lcccc}
-    \toprule
-    \textbf{WGSL}   & \textbf{GLSL}  & \textbf{HLSL}   & \textbf{Metal}     & \textbf{CUDA} \\ \midrule
-    Subgroup        & Subgroup       & Wave            & SIMD-group         & Warp          \\
-    Workgroup       & Workgroup      & Group           & Threadgroup        & Block         \\
-    Workgroup       & Shared         & Groupshared     & Threadgroup        & Shared        \\ \bottomrule
-  \end{tabular}
-\end{table}
-
-Despite its limited suitability within the oversubscription paradigm, inter-workgroup synchronization holds significant performance potential, as many GPU-friendly algorithms—such as \emph{example}, \emph{example}, and \emph{scan}---can benefit from a trade-off that eliminates the costly overhead of kernel-launch synchronization. This potential was explored in prior work~\cite{}, culminating in Gupta et al.’s~\cite{} \emph{Persistent Thread} paradigm. Rather than oversubscribing processors by launching $b$ workgroups, each consuming a single \emph{work tile}, this approach \emph{discovers} the total workgroup occupancy across the device $o$---referred to by Gupta et al. as a \emph{maximal launch}---and launches $o$ workgroups, each responsible for processing $b/o$ work tiles. Limiting the launch size allows the workgroups to always remain on chip, eliding context switching, and thus facilitating an efficient inter-workgroup barrier.
-
 \begin{acks}
 \end{acks}
 
