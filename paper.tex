@@ -133,8 +133,8 @@
 \maketitle
 
 \section{Introduction (WIP)}
-(Tell readers we are targeting WebGPU)
-(Speed of light definition here)
+ (Tell readers we are targeting WebGPU)
+ (Speed of light definition here)
 \subsection{Goals of a Scan Implementation}
 \begin{itemize}
   \item \textbf{Minimal global memory access:} the scan should minimize global memory access to the theoretical minimum of $2n$.
@@ -158,14 +158,14 @@ Although our goal is to create a fully portable and highly performant scan imple
 
 \subsection{Contributions}
 \begin{enumerate}
-    \item Decoupled-Fallback
-    \item Split-Method
-    \item Subgroup-Size Agnostic stuff
+  \item Decoupled-Fallback
+  \item Split-Method
+  \item Subgroup-Size Agnostic stuff
 \end{enumerate}
 
 \section{Background}
 \subsection{Virtualization and Scheduling in the GPU programming model}
-Contemporary GPUs are hierarchically organized, massively parallel processors designed to prioritize throughput over latency. (one sentence on thread hierarchy maybe). As comprehensive descriptions of the GPU programming model~\cite{} already exist, we focus on the aspects most relevant to this work: scheduling and synchronization. 
+Contemporary GPUs are hierarchically organized, massively parallel processors designed to prioritize throughput over latency. (one sentence on thread hierarchy maybe). As comprehensive descriptions of the GPU programming model~\cite{} already exist, we focus on the aspects most relevant to this work: scheduling and synchronization.
 
 On GPU hardware, scheduling is divided into two levels: a \emph{workgroup} scheduler, which manages kernel launches and maps virtual processors, workgroups, to physical processors, \emph{multiprocessors}, and a \emph{subgroup} scheduler, responsible for selecting which of the currently \emph{occupant} subgroups on a multiprocessor for execution. The GPU programming model virtualizes processors to ensure GPU programs---\emph{kernels}---remain portable across hardware with differing physical resources. Effective virtualization requires \emph{oversubcription}, a programming paradigm where tasks are (over)partitioned in such a way that kernels request more virtual processors than are physically available. As a result, a single multiprocessor may host multiple workgroups simultaneously. However, as a consequence of virtualization, the developer relinquishes control over the order in which workgroups are launched, and once a workgroup begins execution on a multiprocessor, it must run to completion and cannot context switch.
 
@@ -176,12 +176,12 @@ Although threads \emph{within} a workgroup may synchronize with each other by pa
 At the subgroup scheduling level, two key issues emerge: \emph{fairness}---how evenly execution resources are distributed among threads---and \emph{progress guarantees}---ensuring that all threads or subgroups eventually make progress towards termination. However, the term "fairness" is used differently across the literature, leading to potential confusion. Sorensen et al.~\cite{10.1145/3022671.2984032, sorensen_et_al:LIPIcs.CONCUR.2018.23, 10.1145/3485508}, whose work provides the most comprehensive taxonomy of progress models to date, use "fairness" specifically to describe differing levels of progress guarantees. In contrast, NVIDIA publications~\cite{4523358, Merrill2016} define "fairness" in terms of the distribution of execution resources among subgroups. In this work, we adopt NVIDIA's terminology to maintain consistency with their publications, while acknowledging the broader definitions provided by Sorensen et al.
 
 \thomas{A scheduler may be fair but may not have FPG (M1 Pro for example); a scheduler may have FPG but may not be fair (ARM Mali). \newline
-Sorensen calls FPG "fairness:" "We have described two schedulers: fair and unfair, under which starvation-freedom for blocking idioms is either always or never guaranteed."\newline
-Nvidia, by contrast uses fairness in line with our language. From Tesla architecture: \newline
-"A scoreboard qualifies each warp for issue each cycle. The instruction scheduler prioritizes all ready warps and selects the one with highest priority for issue. Prioritization considers warp type, instruction type, and 'fairness' to all warps executing in the SM\@." \newline
-From DecoupledLookback: \newline
-"Safety. The algorithm will run to completion if the system guarantees forward-progress for all processors." \newline
-"Blocking will be minimal for systems that provide fair or nearly-fair scheduling. Fairness ensures that all processors will have recorded their aggregates in roughly the same amount of time."
+  Sorensen calls FPG "fairness:" "We have described two schedulers: fair and unfair, under which starvation-freedom for blocking idioms is either always or never guaranteed."\newline
+  Nvidia, by contrast uses fairness in line with our language. From Tesla architecture: \newline
+  "A scoreboard qualifies each warp for issue each cycle. The instruction scheduler prioritizes all ready warps and selects the one with highest priority for issue. Prioritization considers warp type, instruction type, and 'fairness' to all warps executing in the SM\@." \newline
+  From DecoupledLookback: \newline
+  "Safety. The algorithm will run to completion if the system guarantees forward-progress for all processors." \newline
+  "Blocking will be minimal for systems that provide fair or nearly-fair scheduling. Fairness ensures that all processors will have recorded their aggregates in roughly the same amount of time."
 }
 
 \subsection{The Scan Primitive}\label{sec:the-scan-primitive}
@@ -195,7 +195,7 @@ The study of \emph{scan} (\emph{parallel prefix}) networks traces back to the de
 \[
   \text{InclusiveScan}(y, +) = [1, 2, 3, 4, 5]
 \]
-Due to its significance in circuits and as a fundamental algorithmic primitive, scan has been extensively studied in both electrical engineering and computer science. Harris~\cite{1292373} offers a taxonomy that relates depth, fanout, and wire tracks, while Hinze~\cite{10.1007/978-3-540-27764-4_11} develops an algebraic framework for scans. Snir~\cite{10.1016/0196-6774(86)90003-9} proved that depth $d$ and size $s$ are related by $s + d \ge 2n - 2$, and Fich~\cite{10.1145/800061.808738} proved that among minimum depth scans Ladner-Fischer~\cite{10.1145/322217.322232} networks have optimal size. Blelloch~\cite{} adapted scan to the PRAM model and popularized its use as an algorithmic primitive. Finally, Merrill and Garland~\cite{Merrill2016} provide a review of GPU scan implementations, complementing earlier work by Merrill and Grimshaw~\cite{Merrill2009}.
+Due to its significance in circuits and as a fundamental algorithmic primitive, scan has been extensively studied in both electrical engineering and computer science. Harris~\cite{1292373} offers a taxonomy that relates depth, fanout, and wire tracks, while Hinze~\cite{10.1007/978-3-540-27764-4_11} develops an algebraic framework for scans. Snir~\cite{10.1016/0196-67748690003-9} proved that depth $d$ and size $s$ are related by $s + d \ge 2n - 2$, and Fich~\cite{10.1145/800061.808738} proved that among minimum depth scans Ladner-Fischer~\cite{10.1145/322217.322232} networks have optimal size. Blelloch~\cite{} adapted scan to the PRAM model and popularized its use as an algorithmic primitive. Finally, Merrill and Garland~\cite{Merrill2016} provide a review of GPU scan implementations, complementing earlier work by Merrill and Grimshaw~\cite{Merrill2009}.
 
 \subsection{Evolution of Inter-Workgroup Scan Architectures}
 Contemporary GPU scans are distinguished from earlier PRAM-like scans~\cite{} by their alignment with the GPU memory hierarchy, which grades memory into progressively faster but increasingly private tiers. To operate efficiently, GPU scans must hybridize fine-grain intra-workgroup (\emph{local}) strategies, executed privately within shared memory and registers, with coarse-grain inter-workgroup (\emph{global}) strategies, performed in global memory. Due to their relatively low arithmetic intensity, it is theoretically expected and experimentally observed that the performance of local scans are memory-bound, as first demonstrated by Merrill and Grimshaw~\cite{}. Consequently, once equipped with a sufficient local scan strategy, the focus of scan design shifts to addressing the challenges of the global strategy, particularly inter-workgroup coordination and synchronization. In this section, we review the three prominent GPU global scan strategies---\emph{Scan-then-Propagate}, \emph{Reduce-then-Scan}, and \emph{Chained-Scan}---examining how they navigate inter-workgroup dependencies and evaluating their effectiveness in minimizing global memory access and maximizing memory bandwidth utilization.
@@ -206,7 +206,7 @@ Introduced by Sengupta et al.~\cite{10.5555/1280094.1280110}, the \emph{Scan-the
   \item \textbf{Intra-Workgroup (Local) Scan:} Each workgroup performs an inclusive scan on its assigned work tile partition of the input data. The results, including both the local scan output and the reduction of each workgroup, are written back to global memory.
   \item \textbf{Spine Scan:} The reductions from all workgroups, collectively referred to as \emph{spine}, are gathered and scanned to compute the global prefix of the reductions, resolving the dependencies between work tiles; we call the result of this phase the \emph{root}. For large scans, this stage is an insignificant amount of work compared to the first and third.
   \item \textbf{Propagation:} Each workgroup retrieves its portion of the root and combines it with the result of the local scan to compute the final scan.
-\end{enumerate} 
+\end{enumerate}
 
 As each work tile depends on the reductions of previous tiles, the absence of an inter-workgroup barrier necessitates kernel launches to resolve inter-workgroup dependencies. This results in the three-phase construction of \emph{Scan-then-Propagate}, with each phase implemented as a separate kernel launch. This is further complicated in Sengupta et al.'s implementation, where arbitrarily large inputs are processed through recursion. As the size of a work tile limits the maximum number of elements processed without inter-workgroup dependency resolution, the three-phase scan structure must be recursively applied until the spine size fits within a single work tile. Thus, an input of size $n$ and a work tile of size $t$ results in a recursive depth of $\lceil \log_t n \rceil$, and $2\cdot\lceil \log_t n \rceil - 1$ kernel launches. Each recursive step $k$ processes $n/t^k$ tiles, leading to a total of $\sum_{k=1}^{\lceil \log_t n \rceil} n/t^k \approx (n - 1)/(t - 1)$ work tiles over all steps. Since each tile moves $4t$ data ($2t$ local scan, $2t$ propagation), the total global data movement is $O\left(\frac{4t(n - 1)}{t - 1}\right) = O(4n)$.
 
@@ -243,7 +243,7 @@ Additionally, on GPUs where the global memory data cache is indexed by physical 
 
 As a consequence of its single kernel execution and inherently serial ordering, \emph{Chained-Scan} is also suitable for \emph{in-situ} compaction and allocation. In previous architectures, such tasks required additional kernel launches and bookkeeping to handle dependencies between workgroups. By contrast, \emph{Chained-Scan} efficiently propagates dependencies within a single kernel, enabling its application to a variety of practical routines, including data deduplication, sparse data compaction, error correction, and interval merging.
 
-But, while \emph{Chained-Scan} with \emph{Decoupled Lookback} appears to be the ideal scan architecture in terms of its theoretical and implementation characteristics, it falls short in meeting the criterion of \emph{portability}. This limitation arises because \emph{Chained-Scan} depends on a \emph{forward-progress guarantee}, a feature provided by NVIDIA devices but notably lacking on Apple's M-series and ARM GPUs~\cite{sorensen 2}. Without this guarantee, \emph{Chained-Scan} is highly prone to catastrophic failure in the form of deadlocking.
+But, while \emph{Chained-Scan} with \emph{Decoupled Lookback} appears to be the ideal scan architecture in terms of its theoretical and implementation characteristics, it falls short in meeting the criterion of \emph{portability}. This limitation arises because \emph{Chained-Scan} depends on a \emph{forward-progress guarantee}, a feature provided by NVIDIA devices but notably lacking on Apple's M-series and ARM GPUs~\cite{sorensen2}. Without this guarantee, \emph{Chained-Scan} is highly prone to catastrophic failure in the form of deadlocking.
 
 \subsection{Why does \emph{Chained-Scan} Rely on Forward-Progress Guarantees?}
 The challenges faced by \emph{Chained-Scan} are analogous to the \emph{Dining Philosophers Problem}, where tasks compete for shared resources, potentially resulting in deadlock. Coffman et al.~\cite{10.1145/356586.356588} define four conditions necessary for deadlock:
@@ -252,10 +252,10 @@ The challenges faced by \emph{Chained-Scan} are analogous to the \emph{Dining Ph
   \item \textbf{Resource Holding}: Tasks hold acquired resources while waiting.
   \item \textbf{No Preemption}: A resource cannot be removed from a task before completion.
   \item \textbf{Circular Dependency}:
-  \begin{enumerate}
-    \item Dependency Relationships: A dependency exists such that each task holds one or more resources that are required by proceeding tasks.
-    \item Circular Ordering: A circular chain of tasks exists.
-  \end{enumerate}
+        \begin{enumerate}
+          \item Dependency Relationships: A dependency exists such that each task holds one or more resources that are required by proceeding tasks.
+          \item Circular Ordering: A circular chain of tasks exists.
+        \end{enumerate}
 \end{enumerate}
 Applying this schema to \emph{Chained-Scan}, workgroups correspond to "tasks" and work-tile reductions to "resources." Conditions 1â€“3 are satisfied due to the one-to-one mapping of work tiles to workgroups and the constraints of the GPU programming model. Similarly, condition 4a is met by the dependency relationships between work tiles, leaving condition 4b---circular ordering---as the key concern.
 
@@ -293,14 +293,14 @@ Like \emph{Scalar-Fallback}, we choose \emph{mutual exclusion} as our approach t
   \small
   \SetAlgoLined
   \KwIn{%
-    \texttt{in}[], \texttt{out}[], 
-    \texttt{tileBump}, 
-    \texttt{spine}[], 
-    \texttt{wg\_fallback}[], 
-    \texttt{wg\_lock}, 
-    \texttt{wg\_partials}[], 
+    \texttt{in}[], \texttt{out}[],
+    \texttt{tileBump},
+    \texttt{spine}[],
+    \texttt{wg\_fallback}[],
+    \texttt{wg\_lock},
+    \texttt{wg\_partials}[],
     \texttt{wg\_prev\_reduction},
-    \texttt{wg\_broadcast}, 
+    \texttt{wg\_broadcast},
   }
   \KwOut{\texttt{out}[] fully inclusive scan of \texttt{in}[]}
 
@@ -349,16 +349,16 @@ The viability of \emph{Decoupled-Fallback} relies on the same cache locality pro
 At a high level, our algorithmn follows a five phase construction:
 \begin{enumerate}
   \item[(0)] \textbf {Initialization}: The first thread in the workgroup atomically acquires its work-tile by atomically incrementing a value in global memory.
-  \item \textbf{Load Phase}: Each thread loads $p$ vectors, consuming the input in a subgroup-blocked ordering. For a subgroup size $s$ and vector size $v$, each subgroup processes a contiguous block of size $s \cdot p \cdot v$. 
-  \item \textbf{Subgroup-Rake}: Each thread performs a private, serial scan across its vectors and then participates in $p$ raking subgroup scans. This allows the entire scan across the subgroup-block to be barrier-free and remain in registers. The final subgroup-block reduction is then posted to shared memory. 
-  \item \textbf{Workgroup-Wide Scan}: The workgroup collectively performs a scan across the subgroup partial reductions, writing the results back to shared memory upon completion. 
-  \item \textbf{Decoupled-Fallback}: The first subgroup in the workgroup performs a lookback operation, engaging in fallback operations if necessary. Once completed, it posts the results to shared memory for the workgroup to consume. 
-  \item \textbf{Write Phase}: Each subgroup incorporates the results from the workgroup-wide scan and lookback operation to produce and write out the correct output. 
+  \item \textbf{Load Phase}: Each thread loads $p$ vectors, consuming the input in a subgroup-blocked ordering. For a subgroup size $s$ and vector size $v$, each subgroup processes a contiguous block of size $s \cdot p \cdot v$.
+  \item \textbf{Subgroup-Rake}: Each thread performs a private, serial scan across its vectors and then participates in $p$ raking subgroup scans. This allows the entire scan across the subgroup-block to be barrier-free and remain in registers. The final subgroup-block reduction is then posted to shared memory.
+  \item \textbf{Workgroup-Wide Scan}: The workgroup collectively performs a scan across the subgroup partial reductions, writing the results back to shared memory upon completion.
+  \item \textbf{Decoupled-Fallback}: The first subgroup in the workgroup performs a lookback operation, engaging in fallback operations if necessary. Once completed, it posts the results to shared memory for the workgroup to consume.
+  \item \textbf{Write Phase}: Each subgroup incorporates the results from the workgroup-wide scan and lookback operation to produce and write out the correct output.
 \end{enumerate}
 Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3, and 5 comprise the intra-workgroup scan, following a \emph{Scan-then-Propagate} strategy. Phase 4, \emph{Decoupled-Fallback}, is responsible for managing all inter-workgroup dependencies.
 
 \subsection{Intra-Workgroup Portability Adaptations}
-As our loading and writing phase are typical of scan kernels, we focus here on our portability-specific adaptations. 
+As our loading and writing phase are typical of scan kernels, we focus here on our portability-specific adaptations.
 \subsubsection{Subgroup-Raking}
 We desire the smallest intra-workgroup spine possible. Not only does this reduce shared memory usage, but it also directly impacts the number of workgroup barriers encountered during the workgroup-wide scan, as this number is proportional to the size of the local spine. While large subgroups are relatively insensitive to this effect, small subgroups are particularly affected (reference depth here). To address this, we perform $p$ raking iterations of subgroup Kogge-Stone scans, where the highest-ranked thread passes its output into each succeeding scan. For a workgroup of size $w$, this approach reduces the number of partial reductions that each subgroup must post from $p$ to $1$, and it decreases the size of the spine from $\frac{pw}{s}$ to $\frac{w}{s}$.
 \begin{algorithm}[htbp]
@@ -417,11 +417,11 @@ The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in
 \subsection{Decoupled-Fallback}
 To reiterate, the goal of a lookback is twofold: to determine the reduction of all preceding work tiles and to communicate those values to succeeding tiles to accelerate their own lookback operations. Following the \emph{Decoupled-Lookback} technique, we model the spine as a finite state machine, where each work tile comprising the spine may exist in one of three states:
 \begin{itemize}
-    \item \textbf{Not Ready}: The tile has not yet been processed or written to global memory.
-    \item \textbf{Ready}: The tile has completed its local reduction and posted it to global memory.
-    \item \textbf{Inclusive}: The tile has completed its lookback and updated its posting to reflect the inclusive reduction.
+  \item \textbf{Not Ready}: The tile has not yet been processed or written to global memory.
+  \item \textbf{Ready}: The tile has completed its local reduction and posted it to global memory.
+  \item \textbf{Inclusive}: The tile has completed its lookback and updated its posting to reflect the inclusive reduction.
 \end{itemize}
-Each lookback is, therefore, a traversal from the \emph{Ready} state to the \emph{Inclusive} state. To illustrate this process, we present a flowchart (SEE LOOKBACK FLOWCHART). 
+Each lookback is, therefore, a traversal from the \emph{Ready} state to the \emph{Inclusive} state. To illustrate this process, we present a flowchart (SEE LOOKBACK FLOWCHART).
 
 \subsubsection{Decoupled-Fallback}
 \thomas{Given that "lock" has an extensive history of use in computer science and this is not that kind of lock, perhaps a better choice of phrase would be better. Updates to terminology incoming...}
@@ -435,38 +435,38 @@ Prior to kernel launch, all tiles in the spine are initialized to the \emph{Not 
   \item[(0)] \textbf{Posting Local Reduction:} Each workgroup posts its local reduction---the result of the workgroup-wide scan over partials---to global memory and updates its tile state to \emph{Ready}. If it is the first work tile, its local reduction \emph{is} its inclusive reduction. In this case, the workgroup updates its tile state directly to \emph{Inclusive} and bypasses the lookback entirely.
 
   \item \textbf{Initialization:}
-  \begin{itemize}
-      \item The control flag, initialized to \emph{Locked}, signals that the workgroup should enter the lookback phase.
-      \item Each workgroup initializes a \emph{previous reduction} variable with the identity element of the monoid to hold the accumulated reductions of preceding tiles.
-      \item The workgroup prepares to traverse the spine, starting with its immediate predecessor tile.
-  \end{itemize}
+        \begin{itemize}
+          \item The control flag, initialized to \emph{Locked}, signals that the workgroup should enter the lookback phase.
+          \item Each workgroup initializes a \emph{previous reduction} variable with the identity element of the monoid to hold the accumulated reductions of preceding tiles.
+          \item The workgroup prepares to traverse the spine, starting with its immediate predecessor tile.
+        \end{itemize}
 
   \item \textbf{Lookback:}
-  \begin{itemize}
-      \item The workgroup queries the state of the current tile. 
-      \item If the tile is in the \emph{Ready} state, the workgroup accumulates the value and moves to the preceding tile, repeating this step.
-      \item If the tile is in the \emph{Inclusive} state, the workgroup accumulates the value and proceeds directly to step 5.
-      \item If the tile is in the \emph{Not Ready} state, the workgroup spins for a limited number of iterations, defined by the \emph{Maximum Spin Count}. If the spin count exceeds the \emph{Maximum Spin Count}, the workgroup signals a fallback operation using the control flag and proceeds to the next step.
-  \end{itemize}
+        \begin{itemize}
+          \item The workgroup queries the state of the current tile.
+          \item If the tile is in the \emph{Ready} state, the workgroup accumulates the value and moves to the preceding tile, repeating this step.
+          \item If the tile is in the \emph{Inclusive} state, the workgroup accumulates the value and proceeds directly to step 5.
+          \item If the tile is in the \emph{Not Ready} state, the workgroup spins for a limited number of iterations, defined by the \emph{Maximum Spin Count}. If the spin count exceeds the \emph{Maximum Spin Count}, the workgroup signals a fallback operation using the control flag and proceeds to the next step.
+        \end{itemize}
 
   \item \textbf{Fallback:}
-  \begin{itemize}
-      \item The workgroup computes the reduction of the blocking tile by processing the corresponding elements directly.
-      \item Once the fallback reduction is complete, the workgroup \emph{attempts} to post the reduction to global memory and update the tile's state to \emph{Ready}.
-      \item As this update attempt is performed atomically, the workgroup reads back the blocking tile's immediate state:
-      \begin{itemize}
-          \item If the state is \emph{Inclusive}, the fallback value is discarded, and the workgroup accumulates the value before proceeding to step 5.
-          \item If the blocking tile is the first tile in the spine, the workgroup has reached the start of the spine and proceeds to step 5.
-          \item Otherwise, the workgroup resumes the lookback, starting with the preceding tile.
-      \end{itemize}
-  \end{itemize}
+        \begin{itemize}
+          \item The workgroup computes the reduction of the blocking tile by processing the corresponding elements directly.
+          \item Once the fallback reduction is complete, the workgroup \emph{attempts} to post the reduction to global memory and update the tile's state to \emph{Ready}.
+          \item As this update attempt is performed atomically, the workgroup reads back the blocking tile's immediate state:
+                \begin{itemize}
+                  \item If the state is \emph{Inclusive}, the fallback value is discarded, and the workgroup accumulates the value before proceeding to step 5.
+                  \item If the blocking tile is the first tile in the spine, the workgroup has reached the start of the spine and proceeds to step 5.
+                  \item Otherwise, the workgroup resumes the lookback, starting with the preceding tile.
+                \end{itemize}
+        \end{itemize}
 
   \item \textbf{Exit:}
-  \begin{itemize}
-      \item Once the lookback or fallback is complete, the workgroup posts its inclusive reduction to global memory, transitioning its tile state to \emph{Inclusive}.
-      \item The \emph{previous reduction} is also posted to shared memory for the workgroup to consume and propagate as necessary.
-      \item The control flag is updated to \emph{Unlocked} to signal the exit of the \emph{Decoupled-Fallback} phase, allowing subsequent operations to proceed.
-  \end{itemize}
+        \begin{itemize}
+          \item Once the lookback or fallback is complete, the workgroup posts its inclusive reduction to global memory, transitioning its tile state to \emph{Inclusive}.
+          \item The \emph{previous reduction} is also posted to shared memory for the workgroup to consume and propagate as necessary.
+          \item The control flag is updated to \emph{Unlocked} to signal the exit of the \emph{Decoupled-Fallback} phase, allowing subsequent operations to proceed.
+        \end{itemize}
 \end{enumerate}
 
 \subsubsection{Tile State Implementation}
@@ -481,7 +481,7 @@ In the context of fallbacks, the blocking tile can exist in any of three statesâ
 \thomas{Possibly a blurb here about no volatile, so we use all atomics?}
 
 \section{Evaluation}
-256 threads, 16 elements per thread. Shared memory requirements. RTS implementation shares an identical local implementation. Uses Merrill-Grimshaw style raking, with our own occupancy discovery technique. 
+256 threads, 16 elements per thread. Shared memory requirements. RTS implementation shares an identical local implementation. Uses Merrill-Grimshaw style raking, with our own occupancy discovery technique.
 
 \subsection{Comparison to Reduce-Then-Scan}
 
@@ -512,10 +512,10 @@ To ensure consistency with our coding artifact and promote cross-vendor compatib
   \label{tab:terminology}
   \begin{tabular}{lcccc}
     \toprule
-    \textbf{WGSL}   & \textbf{GLSL}  & \textbf{HLSL}   & \textbf{Metal}     & \textbf{CUDA} \\ \midrule
-    Subgroup        & Subgroup       & Wave            & SIMD-group         & Warp          \\
-    Workgroup       & Workgroup      & Group           & Threadgroup        & Block         \\
-    Workgroup       & Shared         & Groupshared     & Threadgroup        & Shared        \\ \bottomrule
+    \textbf{WGSL} & \textbf{GLSL} & \textbf{HLSL} & \textbf{Metal} & \textbf{CUDA} \\ \midrule
+    Subgroup      & Subgroup      & Wave          & SIMD-group     & Warp          \\
+    Workgroup     & Workgroup     & Group         & Threadgroup    & Block         \\
+    Workgroup     & Shared        & Groupshared   & Threadgroup    & Shared        \\ \bottomrule
   \end{tabular}
 \end{table}
 
