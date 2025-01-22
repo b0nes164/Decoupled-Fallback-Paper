@@ -294,7 +294,7 @@
 	numpages     = 16,
 	keywords     = {gpu, heterogeneous computing, parallel sorting, radix sort, sorting}
 }
-@InCollection{Sengupta2008,
+@InCollection{Sengupta2011,
   author =	 {Shubhabrata Sengupta and Mark Harris and Michael
                   Garland and John D. Owens},
   editor =	 {Jakub Kurzak and David A. Bader and Jack Dongarra},
@@ -410,26 +410,26 @@
 	keywords     = {scan, prefix-sum, parallel algorithms, opencl, gpu, cuda}
 }
 
-@article{10.1145/3022671.2984032,
-  author = {Sorensen, Tyler and Donaldson, Alastair F. and Batty, Mark and Gopalakrishnan, Ganesh and Rakamari\'{c}, Zvonimir},
-  title = {Portable inter-workgroup barrier synchronisation for GPUs},
-  year = {2016},
-  issue_date = {October 2016},
-  publisher = {Association for Computing Machinery},
-  address = {New York, NY, USA},
-  volume = {51},
-  number = {10},
-  issn = {0362-1340},
-  url = {https://doi.org/10.1145/3022671.2984032},
-  doi = {10.1145/3022671.2984032},
-  journal = {SIGPLAN Not.},
-  month = oct,
-  pages = {39–58},
-  numpages = {20},
-  keywords = {GPU, OpenCL, barrier, portability, synchronisation}
+@article{sorensen2016,
+	author = {Sorensen, Tyler and Donaldson, Alastair F. and Batty, Mark and Gopalakrishnan, Ganesh and Rakamari\'{c}, Zvonimir},
+	title = {Portable inter-workgroup barrier synchronisation for GPUs},
+	year = {2016},
+	issue_date = {October 2016},
+	publisher = {Association for Computing Machinery},
+	address = {New York, NY, USA},
+	volume = {51},
+	number = {10},
+	issn = {0362-1340},
+	url = {https://doi.org/10.1145/3022671.2984032},
+	doi = {10.1145/3022671.2984032},
+	journal = {SIGPLAN Not.},
+	month = oct,
+	pages = {39–58},
+	numpages = {20},
+	keywords = {GPU, OpenCL, barrier, portability, synchronisation}
 }
 
-@inproceedings{sorensen_et_al:LIPIcs.CONCUR.2018.23,
+@inproceedings{sorensen2018,
 	title        = {{GPU} Schedulers: How Fair Is Fair Enough?},
 	author       = {Sorensen, Tyler and Evrard, Hugues and Donaldson, Alastair F.},
 	year         = 2018,
@@ -447,7 +447,7 @@
 	urn          = {urn:nbn:de:0030-drops-95619},
 	annote       = {Keywords: GPU scheduling, Blocking synchronisation, GPU semantics}
 }
-@article{10.1145/3485508,
+@article{sorensen2021,
 	title        = {Specifying and testing {GPU} workgroup progress models},
 	author       = {Sorensen, Tyler and Salvador, Lucas F. and Raval, Harmit and Evrard, Hugues and Wickerson, John and Martonosi, Margaret and Donaldson, Alastair F.},
 	year         = 2021,
@@ -633,4 +633,46 @@
 	month = jun,
 	pages = {67–78},
 	numpages = {12}
+}
+
+@article{10.1109/TPDS.2012.336,
+	author = {Ha, Sang-Won and Han, Tack-Don},
+	title = {A Scalable Work-Efficient and Depth-Optimal Parallel Scan for the GPGPU Environment},
+	year = {2013},
+	issue_date = {December 2013},
+	publisher = {IEEE Press},
+	volume = {24},
+	number = {12},
+	issn = {1045-9219},
+	url = {https://doi.org/10.1109/TPDS.2012.336},
+	doi = {10.1109/TPDS.2012.336},
+	month = dec,
+	pages = {2324–2333},
+	numpages = {10},
+	keywords = {GPGPU, Han-Carlson adder, Parallel scan, high-performance computing, prefix sum}
+}
+
+@inproceedings{10.5555/2031978.2032029,
+	author = {Breitbart, Jens},
+	title = {Static GPU threads and an improved scan algorithm},
+	year = {2010},
+	isbn = {9783642218774},
+	publisher = {Springer-Verlag},
+	address = {Berlin, Heidelberg},
+	pages = {373–380},
+	numpages = {8},
+	location = {Ischia, Italy},
+	series = {Euro-Par 2010}
+}
+
+@INPROCEEDINGS{gupta2012,
+	author={Gupta, Kshitij and Stuart, Jeff A. and Owens, John D.},
+	booktitle={2012 Innovative Parallel Computing (InPar)}, 
+	title={A study of Persistent Threads style GPU programming for GPGPU workloads}, 
+	year={2012},
+	volume={},
+	number={},
+	pages={1-14},
+	keywords={Graphics processing unit;Computers;Abstracts;Switches;Programming;Argon;Computer aided software engineering},
+	doi={10.1109/InPar.2012.6339596}
 }
