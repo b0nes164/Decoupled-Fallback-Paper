@@ -1,4 +1,4 @@
-struct InfoStruct
+struct ScanParameters
 {
     size: u32,
     vec_size: u32,
@@ -6,7 +6,7 @@ struct InfoStruct
 };
 
 @group(0) @binding(0)
-var<uniform> info : InfoStruct; 
+var<uniform> params : ScanParameters; 
 
 @group(0) @binding(1)
 var<storage, read_write> scan_in: array<vec4<u32>>;
@@ -32,15 +32,15 @@ fn main(
     @builtin(local_invocation_id) threadid: vec3<u32>,
     @builtin(workgroup_id) wgid: vec3<u32>) {
     let end = (wgid.x + 1u) * VEC_TILE_SIZE;
-    if(wgid.x < info.work_tiles - 1u){
+    if(wgid.x < params.work_tiles - 1u){
         for(var i = threadid.x + wgid.x * VEC_TILE_SIZE; i < end; i += BLOCK_DIM){
             scan_out[i] = scan_in[i];
         }
     }
 
-    if(wgid.x == info.work_tiles - 1u){
+    if(wgid.x == params.work_tiles - 1u){
         for(var i = threadid.x + wgid.x * VEC_TILE_SIZE; i < end; i += BLOCK_DIM){
-            if(i < info.vec_size){
+            if(i < params.vec_size){
                 scan_out[i] = scan_in[i];
             }
         }
