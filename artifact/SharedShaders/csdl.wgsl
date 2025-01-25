@@ -46,15 +46,26 @@ var<workgroup> wg_broadcast: u32;
 var<workgroup> wg_partials: array<u32, MAX_PARTIALS_SIZE>;
 var<workgroup> wg_fallback: array<u32, MAX_PARTIALS_SIZE>;
 
-//Wrap all values
+@diagnostic(off, subgroup_uniformity)
+fn unsafeShuffle(x: u32, source: u32) -> u32 {
+    return subgroupShuffle(x, source);
+}
+
+//lop off of the upper ballot bits;
+//we never need them across all subgroup sizes
+@diagnostic(off, subgroup_uniformity)
+fn unsafeBallot(pred: bool) -> u32 {
+    return subgroupBallot(pred).x;  
+}
+
 fn join(mine: u32, tid: u32) -> u32 {
     let xor = tid ^ 1;
-    let theirs = subgroupShuffle(mine, xor);
+    let theirs = unsafeShuffle(mine, xor);
     return (mine << (16u * tid)) | (theirs << (16u * xor));
 }
 
 fn split(x: u32, tid: u32) -> u32 {
-    return (x >> (tid * 16u)) & VALUE_MASK; //bitcast as needed
+    return (x >> (tid * 16u)) & VALUE_MASK;
 }
 
 @compute @workgroup_size(BLOCK_DIM, 1, 1)
@@ -158,13 +169,13 @@ fn main(
         if(threadid.x < lane_count){
             while(true) {
                 var flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
-                if(subgroupBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY).x == ALL_READY) {
-                    var incl_bal = subgroupBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE).x;
+                if(unsafeBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY) == ALL_READY) {
+                    var incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                     if(incl_bal != 0u) {
                         //Did we find any inclusive? Alright, the rest are guaranteed to be on their way, lets just wait. 
                         while(incl_bal != ALL_READY){
                             flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
-                            incl_bal = subgroupBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE).x;
+                            incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                         }
                         prev_red += join(flag_payload & VALUE_MASK, threadid.x);
                         if(threadid.x < SPLIT_MEMBERS){

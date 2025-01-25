@@ -49,15 +49,26 @@ var<workgroup> wg_broadcast: u32;
 var<workgroup> wg_partials: array<u32, MAX_PARTIALS_SIZE>;
 var<workgroup> wg_fallback: array<u32, MAX_PARTIALS_SIZE>;
 
-//Wrap all values
+@diagnostic(off, subgroup_uniformity)
+fn unsafeShuffle(x: u32, source: u32) -> u32 {
+    return subgroupShuffle(x, source);
+}
+
+//lop off of the upper ballot bits;
+//we never need them across all subgroup sizes
+@diagnostic(off, subgroup_uniformity)
+fn unsafeBallot(pred: bool) -> u32 {
+    return subgroupBallot(pred).x;  
+}
+
 fn join(mine: u32, tid: u32) -> u32 {
     let xor = tid ^ 1;
-    let theirs = subgroupShuffle(mine, xor);
+    let theirs = unsafeShuffle(mine, xor);
     return (mine << (16u * tid)) | (theirs << (16u * xor));
 }
 
 fn split(x: u32, tid: u32) -> u32 {
-    return (x >> (tid * 16u)) & VALUE_MASK; //bitcast as needed
+    return (x >> (tid * 16u)) & VALUE_MASK;
 }
 
 @compute @workgroup_size(BLOCK_DIM, 1, 1)
@@ -155,12 +166,13 @@ fn main(
         atomicStore(&spine[tile_id][threadid.x], t);
     }
 
-    //lookback, single subgroup
+    //Statistics that we will gather
     var total_spins = 0u;
     var lookback_length = 1u;
     var fallbacks_initiated = 0u;
     var successful_fallback_insertions = 0u;
 
+    //lookback, single subgroup
     if(tile_id != 0u){
         var prev_red = 0u;
         var lookback_id = tile_id - 1u;
@@ -170,13 +182,13 @@ fn main(
                 var spin_count = 0u;
                 while(spin_count < MAX_SPIN_COUNT){
                     var flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
-                    if(subgroupBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY).x == ALL_READY) {
-                        var incl_bal = subgroupBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE).x;
+                    if(unsafeBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY) == ALL_READY) {
+                        var incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                         if(incl_bal != 0u) {
                             //Did we find any inclusive? Alright, the rest are guaranteed to be on their way, lets just wait. 
                             while(incl_bal != ALL_READY){
                                 flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
-                                incl_bal = subgroupBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE).x;
+                                incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                             }
                             prev_red += join(flag_payload & VALUE_MASK, threadid.x);
                             if(threadid.x < SPLIT_MEMBERS){
@@ -198,11 +210,11 @@ fn main(
                         spin_count += 1u;
                         total_spins += 1u;
                     }
+                }
 
-                    if(threadid.x == 0 && spin_count == MAX_SPIN_COUNT) {
-                        wg_broadcast = lookback_id;
-                        fallbacks_initiated += 1u;
-                    }
+                if(threadid.x == 0 && spin_count == MAX_SPIN_COUNT) {
+                    wg_broadcast = lookback_id;
+                    fallbacks_initiated += 1u;
                 }
             }
 
@@ -247,13 +259,13 @@ fn main(
                 if(threadid.x < lane_count){
                     let f_split = split(f_red, threadid.x) | select(FLAG_READY, FLAG_INCLUSIVE, fallback_id == 0u);
                     var f_payload = 0u;
-                    if(threadid.x < SPLIT_MEMBERS){
+                    if(threadid.x < SPLIT_MEMBERS) {
                         f_payload = atomicMax(&spine[fallback_id][threadid.x], f_split);
                         if(f_payload == 0u){
                             successful_fallback_insertions += 1u;
                         }
                     }
-                    let incl_found = subgroupBallot((f_payload & FLAG_MASK) == FLAG_INCLUSIVE).x == ALL_READY;
+                    let incl_found = unsafeBallot((f_payload & FLAG_MASK) == FLAG_INCLUSIVE) == ALL_READY;
                     if(incl_found){
                         prev_red += join(f_payload & VALUE_MASK, threadid.x); 
                     } else {

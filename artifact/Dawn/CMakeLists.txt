@@ -12,7 +12,7 @@ add_executable(dawn main.cpp)
 target_link_libraries(dawn dawn::webgpu_dawn)
 
 #your insall path here
-#export CMAKE_PREFIX_PATH=/home/tom/Desktop/dawn/install/Release
+#export CMAKE_PREFIX_PATH=/your/path/to/dawn/install/Release
 
 #set config
-#cmake -S . -B out/Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+#cmake -S . -B out/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++

@@ -1,12 +1,3 @@
-/******************************************************************************
- * GPUPrefixSums
- *
- * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 10/23/2024
- * https://github.com/b0nes164/GPUPrefixSums
- *
- ******************************************************************************/
-
 #include <dawn/webgpu_cpp.h>
 
 #include <cstdlib>
@@ -38,13 +29,10 @@ struct Shaders {
     ComputeShader downsweep;
     ComputeShader csdl;
     ComputeShader csdldf;
-    ComputeShader csdldfStruct;
     ComputeShader csdldfStats;
-    ComputeShader csdldfStructStats;
-    ComputeShader csdldfOcc;
-    ComputeShader csdldfStructOcc;
+    ComputeShader csdldfEmulate;
+    ComputeShader memcpy;
     ComputeShader validate;
-    ComputeShader validateStruct;
 };
 
 struct GPUBuffers {
@@ -71,10 +59,7 @@ struct TestArgs {
     bool shouldReadback = false;
     bool shouldTime = false;
     bool shouldGetStats = false;
-    bool shouldGetOcc = false;
     uint32_t (*MainPass)(const TestArgs&, wgpu::CommandEncoder*) = nullptr;
-    bool (*ValidateSync)(const GPUContext&, GPUBuffers*,
-                         const Shaders&) = nullptr;
 };
 
 enum class ScanType {
@@ -82,10 +67,8 @@ enum class ScanType {
     Csdl,
     Csdldf,
     CsdldfStats,
-    CsdldfOcc,
-    CsdldfStruct,
-    CsdldfStructStats,
-    CsdldfStructOcc,
+    CsdldfEmulate,
+    Memcpy,
     Unknown
 };
 
@@ -146,20 +129,16 @@ int GetGPUContext(GPUContext* context, uint32_t timestampCount) {
         wgpu::FeatureName::Subgroups,
         wgpu::FeatureName::TimestampQuery,
     };
+
+    auto errorCallback = [](const wgpu::Device& device, wgpu::ErrorType type, wgpu::StringView message) {
+        std::cerr << "Error: " << std::string(message.data, message.length) << std::endl;
+    };
+
     wgpu::DeviceDescriptor devDescriptor{};
     devDescriptor.requiredFeatures = reqFeatures.data();
     devDescriptor.requiredFeatureCount =
         static_cast<uint32_t>(reqFeatures.size());
-
-    WGPUErrorCallback errorCallback = [](WGPUErrorType type,
-                                         WGPUStringView message, void*) {
-        std::cerr << "Error: " << std::string(message.data, message.length)
-                  << std::endl;
-    };
-    wgpu::UncapturedErrorCallbackInfo errorCallbackInfo = {};
-    errorCallbackInfo.callback = errorCallback;
-    errorCallbackInfo.userdata = nullptr;
-    devDescriptor.uncapturedErrorCallbackInfo = errorCallbackInfo;
+    devDescriptor.SetUncapturedErrorCallback(errorCallback);
 
     wgpu::Device device;
     std::promise<void> devPromise;
@@ -181,27 +160,12 @@ int GetGPUContext(GPUContext* context, uint32_t timestampCount) {
     }
     wgpu::Queue queue = device.GetQueue();
 
-    // Check features if necessary
-    //  wgpu::FeatureName features[reqFeatures.size()];
-    //  size_t featureCount = device.EnumerateFeatures(features);
-    //  std::cout << "Supported features:" << std::endl;
-    //  for (size_t i = 0; i < featureCount; ++i) {
-    //      std::cout << "Feature " << i << ": " << (uint32_t)features[i] <<
-    //      std::endl;
-    //  }
-
     // Query set for the timing, no need to grab the timing period/frequency?
     wgpu::QuerySetDescriptor querySetDescriptor{};
     querySetDescriptor.label = "Timestamp Query Set";
     querySetDescriptor.count = timestampCount * 2;
     querySetDescriptor.type = wgpu::QueryType::Timestamp;
     wgpu::QuerySet querySet = device.CreateQuerySet(&querySetDescriptor);
-
-    // device.SetDeviceLostCallback([](WGPUDeviceLostReason reason,
-    // WGPUStringView message, void*) {
-    //     std::cerr << "Device lost: " << std::string(message.data,
-    //     message.length) << std::endl;
-    // }, nullptr);
 
     (*context).instance = instance;
     (*context).device = device;
@@ -378,14 +342,14 @@ void GetComputeShaderPipeline(const wgpu::Device& device,
     wgpu::PipelineLayout pipeLayout =
         device.CreatePipelineLayout(&pipeLayoutDesc);
 
-    wgpu::ProgrammableStageDescriptor stageDesc = {};
-    stageDesc.entryPoint = entryPoint;
-    stageDesc.module = module;
+    wgpu::ComputeState compState = {};
+    compState.entryPoint = entryPoint;
+    compState.module = module;
 
     wgpu::ComputePipelineDescriptor compPipeDesc = {};
     compPipeDesc.label = makeLabel("Compute Pipeline").c_str();
     compPipeDesc.layout = pipeLayout;
-    compPipeDesc.compute = stageDesc;
+    compPipeDesc.compute = compState;
     wgpu::ComputePipeline compPipeline =
         device.CreateComputePipeline(&compPipeDesc);
 
@@ -469,34 +433,20 @@ void GetAllShaders(const GPUContext& gpu, const GPUBuffers& buffs,
     CreateShaderFromSource(gpu, buffs, &shaders->csdldf, "main",
                            "../SharedShaders/csdldf.wgsl", "CSDLDF");
 
-    CreateShaderFromSource(gpu, buffs, &shaders->csdldfStruct, "main",
-                           "../SharedShaders/csdldf_struct.wgsl",
-                           "CSDLDF Struct");
-
     CreateShaderFromSource(gpu, buffs, &shaders->csdldfStats, "main",
-                           "../SharedShaders/TestVariants/csdldf_stats.wgsl",
+                           "../SharedShaders/csdldf_stats.wgsl",
                            "CSDLDF Stats");
 
-    CreateShaderFromSource(
-        gpu, buffs, &shaders->csdldfStructStats, "main",
-        "../SharedShaders/TestVariants/csdldf_struct_stats.wgsl",
-        "CSDLDF Struct Stats");
+    CreateShaderFromSource(gpu, buffs, &shaders->csdldfEmulate, "main",
+                           "../SharedShaders/csdldf_emulate.wgsl",
+                           "CSDLDF Emulation");
 
-    CreateShaderFromSource(gpu, buffs, &shaders->csdldfOcc, "main",
-                           "../SharedShaders/TestVariants/csdldf_occ.wgsl",
-                           "CSDLDF Occupancy");
-
-    CreateShaderFromSource(
-        gpu, buffs, &shaders->csdldfStructOcc, "main",
-        "../SharedShaders/TestVariants/csdldf_struct_occ.wgsl",
-        "CSDLDF Struct Occupancy");
+    CreateShaderFromSource(gpu, buffs, &shaders->memcpy, "main",
+                           "../SharedShaders/memcpy.wgsl",
+                           "Memcpy");
 
     CreateShaderFromSource(gpu, buffs, &shaders->validate, "main",
                            "../SharedShaders/validate.wgsl", "Validate");
-
-    CreateShaderFromSource(gpu, buffs, &shaders->validateStruct,
-                           "validate_struct", "../SharedShaders/validate.wgsl",
-                           "Validate");
 }
 
 void SetComputePass(const ComputeShader& cs, wgpu::CommandEncoder* comEncoder,
@@ -594,7 +544,7 @@ void CopyAndReadbackSync(const GPUContext& gpu, wgpu::Buffer* srcReadback,
     ReadbackSync(gpu, dstReadback, readOut, readbackSize * sizeof(T));
 }
 
-bool ValidateBase(const GPUContext& gpu, GPUBuffers* buffs,
+bool Validate(const GPUContext& gpu, GPUBuffers* buffs,
                   const ComputeShader& validate) {
     wgpu::CommandEncoderDescriptor comEncDesc = {};
     comEncDesc.label = "Validate Command Encoder";
@@ -612,16 +562,6 @@ bool ValidateBase(const GPUContext& gpu, GPUBuffers* buffs,
         std::cerr << "Test failed: " << readOut[0] << " errors" << std::endl;
     }
     return testPassed;
-}
-
-bool ValidateGeneric(const GPUContext& gpu, GPUBuffers* buffs,
-                     const Shaders& shaders) {
-    return ValidateBase(gpu, buffs, shaders.validate);
-}
-
-bool ValidateStruct(const GPUContext& gpu, GPUBuffers* buffs,
-                    const Shaders& shaders) {
-    return ValidateBase(gpu, buffs, shaders.validateStruct);
 }
 
 void ReadbackAndPrintSync(const GPUContext& gpu, GPUBuffers* buffs,
@@ -656,19 +596,13 @@ uint64_t GetTime(const GPUContext& gpu, GPUBuffers* buffs, uint32_t passCount) {
     for (uint32_t i = 0; i < passCount; ++i) {
         totalTime += timeOut[i * 2 + 1] - timeOut[i * 2];
     }
-    // std::cout << totalTime << std::endl;
+    //std::cout << totalTime << std::endl;
     return totalTime;
-}
-
-uint32_t GetOccupancy(const GPUContext& gpu, GPUBuffers* buffs) {
-    std::vector<uint32_t> readOut(1);
-    CopyAndReadbackSync(gpu, &buffs->misc, &buffs->readback, &readOut, 1, 1);
-    return readOut[0];
 }
 
 void GetFallbackStatistics(const GPUContext& gpu, GPUBuffers* buffs,
                            std::vector<uint32_t>* stats) {
-    CopyAndReadbackSync(gpu, &buffs->misc, &buffs->readback, stats, 1, 3);
+    CopyAndReadbackSync(gpu, &buffs->misc, &buffs->readback, stats, 1, 4);
 }
 
 void InitializeUniforms(const GPUContext& gpu, GPUBuffers* buffs, uint32_t size,
@@ -724,18 +658,6 @@ uint32_t CSDLDF(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
     return passCount;
 }
 
-uint32_t CSDLDFStruct(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
-    const uint32_t passCount = 1;
-    if (args.shouldTime) {
-        SetComputePassTimed(args.shaders.csdldfStruct, comEncoder,
-                            args.gpu.querySet, args.threadBlocks, 0);
-    } else {
-        SetComputePass(args.shaders.csdldfStruct, comEncoder,
-                       args.threadBlocks);
-    }
-    return passCount;
-}
-
 uint32_t CSDLDFStats(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
     const uint32_t passCount = 1;
     if (args.shouldTime) {
@@ -747,39 +669,24 @@ uint32_t CSDLDFStats(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
     return passCount;
 }
 
-uint32_t CSDLDFStructStats(const TestArgs& args,
-                           wgpu::CommandEncoder* comEncoder) {
+uint32_t CSDLDFEmulate(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
     const uint32_t passCount = 1;
     if (args.shouldTime) {
-        SetComputePassTimed(args.shaders.csdldfStructStats, comEncoder,
+        SetComputePassTimed(args.shaders.csdldfEmulate, comEncoder,
                             args.gpu.querySet, args.threadBlocks, 0);
     } else {
-        SetComputePass(args.shaders.csdldfStructStats, comEncoder,
-                       args.threadBlocks);
+        SetComputePass(args.shaders.csdldfEmulate, comEncoder, args.threadBlocks);
     }
     return passCount;
 }
 
-uint32_t CSDLDFOcc(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
+uint32_t Memcpy(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
     const uint32_t passCount = 1;
     if (args.shouldTime) {
-        SetComputePassTimed(args.shaders.csdldfOcc, comEncoder,
+        SetComputePassTimed(args.shaders.memcpy, comEncoder,
                             args.gpu.querySet, args.threadBlocks, 0);
     } else {
-        SetComputePass(args.shaders.csdldfOcc, comEncoder, args.threadBlocks);
-    }
-    return passCount;
-}
-
-uint32_t CSDLDFStructOcc(const TestArgs& args,
-                         wgpu::CommandEncoder* comEncoder) {
-    const uint32_t passCount = 1;
-    if (args.shouldTime) {
-        SetComputePassTimed(args.shaders.csdldfStructOcc, comEncoder,
-                            args.gpu.querySet, args.threadBlocks, 0);
-    } else {
-        SetComputePass(args.shaders.csdldfStructOcc, comEncoder,
-                       args.threadBlocks);
+        SetComputePass(args.shaders.memcpy, comEncoder, args.threadBlocks);
     }
     return passCount;
 }
@@ -788,6 +695,7 @@ void Run(std::string testLabel, const TestArgs& args) {
     uint32_t totalSpins = 0;
     uint32_t fallbacksAttempted = 0;
     uint32_t successfulInsertions = 0;
+    uint32_t lookbackLength = 0;
 
     uint32_t testsPassed = 0;
     uint64_t totalTime = 0ULL;
@@ -812,16 +720,16 @@ void Run(std::string testLabel, const TestArgs& args) {
         }
 
         if (args.shouldGetStats) {
-            std::vector<uint32_t> stats(3, 0);
+            std::vector<uint32_t> stats(4, 0);
             GetFallbackStatistics(args.gpu, &args.buffs, &stats);
             totalSpins += stats[0];
             fallbacksAttempted += stats[1];
             successfulInsertions += stats[2];
+            lookbackLength += stats[3];
         }
 
         if (args.shouldValidate) {
-            testsPassed +=
-                args.ValidateSync(args.gpu, &args.buffs, args.shaders);
+            testsPassed += Validate(args.gpu, &args.buffs, args.shaders.validate);
         }
     }
     std::cout << std::endl;
@@ -830,13 +738,9 @@ void Run(std::string testLabel, const TestArgs& args) {
         ReadbackAndPrintSync(args.gpu, &args.buffs, args.readbackSize);
     }
 
-    if (args.shouldGetOcc) {
-        uint32_t occupancy = GetOccupancy(args.gpu, &args.buffs);
-        std::cout << "Estimated Occupancy: " << occupancy << std::endl;
-    }
-
     if (args.shouldGetStats) {
         double avgTotalSpins = static_cast<double>(totalSpins) / args.batchSize;
+        double avgLookbackLength = static_cast<double>(lookbackLength) / args.batchSize / args.threadBlocks;
         double avgFallbacksAttempted =
             static_cast<double>(fallbacksAttempted) / args.batchSize;
         double avgSuccessfulInsertions =
@@ -844,6 +748,7 @@ void Run(std::string testLabel, const TestArgs& args) {
         std::cout << "Threadblocks Launched: " << args.threadBlocks
                   << std::endl;
         std::cout << "Average Total Spins: " << avgTotalSpins << std::endl;
+        std::cout << "Average Lookback Length Per Workgroup" << avgLookbackLength << std::endl;
         std::cout << "Average Total Fallbacks Attempted: "
                   << avgFallbacksAttempted << std::endl;
         std::cout << "Average Total Successful Insertions: "
@@ -878,21 +783,17 @@ ScanType ParseScanType(const std::string& str) {
         return ScanType::Csdldf;
     else if (str == "csdldf_stats")
         return ScanType::CsdldfStats;
-    else if (str == "csdldf_occ")
-        return ScanType::CsdldfOcc;
-    else if (str == "csdldf_struct")
-        return ScanType::CsdldfStruct;
-    else if (str == "csdldf_struct_stats")
-        return ScanType::CsdldfStructStats;
-    else if (str == "csdldf_struct_occ")
-        return ScanType::CsdldfStructOcc;
+    else if (str == "csdldf_emulate")
+        return ScanType::CsdldfEmulate;
+    else if (str == "memcpy")
+        return ScanType::Memcpy;
     else
         return ScanType::Unknown;
 }
 
 int main(int argc, char* argv[]) {
     constexpr uint32_t MISC_SIZE =
-        4;  // Max scratch memory we use to track various stats
+        5;  // Max scratch memory we use to track various stats
     constexpr uint32_t PART_SIZE =
         4096;  // MUST match the partition size specified in shaders.
     constexpr uint32_t MAX_TIMESTAMPS =
@@ -969,47 +870,29 @@ int main(int argc, char* argv[]) {
         switch (scan_type) {
             case ScanType::Rts:
                 args.MainPass = RTS;
-                args.ValidateSync = ValidateGeneric;
                 Run("RTS", args);
                 break;
             case ScanType::Csdl:
                 args.MainPass = CSDL;
-                args.ValidateSync = ValidateGeneric;
                 Run("CSDL", args);
                 break;
             case ScanType::Csdldf:
                 args.MainPass = CSDLDF;
-                args.ValidateSync = ValidateGeneric;
                 Run("CSDLDf", args);
                 break;
             case ScanType::CsdldfStats:
                 args.shouldGetStats = true;
                 args.MainPass = CSDLDFStats;
-                args.ValidateSync = ValidateGeneric;
                 Run("CSDLDf_Stats", args);
                 break;
-            case ScanType::CsdldfOcc:
-                args.shouldGetOcc = true;
-                args.MainPass = CSDLDFOcc;
-                args.ValidateSync = ValidateGeneric;
-                Run("CSDLDf_Occ", args);
+            case ScanType::CsdldfEmulate:
+                args.MainPass = CSDLDFEmulate;
+                Run("CSDLDF_Emulate", args);
                 break;
-            case ScanType::CsdldfStruct:
-                args.MainPass = CSDLDFStruct;
-                args.ValidateSync = ValidateStruct;
-                Run("CSDLDf_Struct", args);
-                break;
-            case ScanType::CsdldfStructStats:
-                args.shouldGetStats = true;
-                args.MainPass = CSDLDFStructStats;
-                args.ValidateSync = ValidateStruct;
-                Run("CSDLDf_Struct_Stats", args);
-                break;
-            case ScanType::CsdldfStructOcc:
-                args.shouldGetOcc = true;
-                args.MainPass = CSDLDFStructOcc;
-                args.ValidateSync = ValidateStruct;
-                Run("CSDLDf_Struct_Occ", args);
+            case ScanType::Memcpy:
+                args.MainPass = Memcpy;
+                args.shouldValidate = false;
+                Run("Memcpy", args);
                 break;
             default:
                 std::cerr << "Error: Unsupported scan type" << std::endl;
