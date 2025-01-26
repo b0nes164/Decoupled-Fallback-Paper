@@ -42,7 +42,7 @@ const MAX_SPIN_COUNT = 4u;
 const LOCKED = 1u;
 const UNLOCKED = 0u;
 
-const DEADLOCK_MASK = 1u;
+const DEADLOCK_MASK = 511u;
 
 var<workgroup> wg_control: u32;
 var<workgroup> wg_broadcast: u32;
@@ -186,14 +186,6 @@ fn main(
                             }
                             prev_red += join(flag_payload & VALUE_MASK, threadid.x);
                             if(threadid.x < SPLIT_MEMBERS){
-                                if((tile_id & DEADLOCK_MASK) == 0u){
-                                    for(var i = 0u; i < 1000000; i += 1u){
-                                        let t = atomicLoad(&spine[tile_id][threadid.x]);
-                                        if(t != 0u){
-                                            break;
-                                        }
-                                    }
-                                }
                                 let t = split(prev_red + wg_partials[local_spine - 1u], threadid.x) | FLAG_INCLUSIVE;
                                 atomicStore(&spine[tile_id][threadid.x], t);
                             }
@@ -258,7 +250,7 @@ fn main(
                 if(threadid.x < lane_count){
                     let f_split = split(f_red, threadid.x) | select(FLAG_READY, FLAG_INCLUSIVE, fallback_id == 0u);
                     var f_payload = 0u;
-                    if(threadid.x < SPLIT_MEMBERS) {
+                    if(threadid.x < SPLIT_MEMBERS){
                         f_payload = atomicMax(&spine[fallback_id][threadid.x], f_split);
                     }
                     let incl_found = unsafeBallot((f_payload & FLAG_MASK) == FLAG_INCLUSIVE) == ALL_READY;

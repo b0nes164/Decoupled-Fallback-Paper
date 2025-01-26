@@ -844,8 +844,7 @@ int main(int argc, char* argv[]) {
         1 << powerOfTwo;     // Input size to test, must be a multiple of 4
     uint32_t threadBlocks =  // Thread Blocks to launch based on input
         (size + PART_SIZE - 1) / PART_SIZE;
-    uint32_t readbackSize =
-        256;  // How many elements to readback, must be less than max
+    uint32_t readbackSize = 256;  // How many elements to readback, must be less than max
     bool shouldValidate = true;   // Perform validation?
     bool shouldReadback = false;  // Use readback to sanity check results
     bool shouldTime = true;       // Time results?
