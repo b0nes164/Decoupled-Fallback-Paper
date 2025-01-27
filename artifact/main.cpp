@@ -421,32 +421,31 @@ void GetAllShaders(const GPUContext& gpu, const GPUBuffers& buffs,
                    Shaders* shaders) {
     std::vector<std::string> empty;
     CreateShaderFromSource(gpu, buffs, &shaders->init, "main",
-                           "../SharedShaders/init.wgsl", "Init", empty);
+                           "Shaders/init.wgsl", "Init", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->reduce, "reduce",
-                           "../SharedShaders/rts.wgsl", "Reduce", empty);
+                           "Shaders/rts.wgsl", "Reduce", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->spineScan, "spine_scan",
-                           "../SharedShaders/rts.wgsl", "Spine Scan", empty);
+                           "Shaders/rts.wgsl", "Spine Scan", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->downsweep, "downsweep",
-                           "../SharedShaders/rts.wgsl", "Downsweep", empty);
+                           "Shaders/rts.wgsl", "Downsweep", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->csdl, "main",
-                           "../SharedShaders/csdl.wgsl", "CSDL", empty);
+                           "Shaders/csdl.wgsl", "CSDL", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->csdldf, "main",
-                           "../SharedShaders/csdldf.wgsl", "CSDLDF", empty);
+                           "Shaders/csdldf.wgsl", "CSDLDF", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->csdldfOcc, "main",
-                           "../SharedShaders/csdldf_occ.wgsl", "CSDLDF OCC",
-                           empty);
+                           "Shaders/csdldf_occ.wgsl", "CSDLDF OCC", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->memcpy, "main",
-                           "../SharedShaders/memcpy.wgsl", "Memcpy", empty);
+                           "Shaders/memcpy.wgsl", "Memcpy", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->validate, "main",
-                           "../SharedShaders/validate.wgsl", "Validate", empty);
+                           "Shaders/validate.wgsl", "Validate", empty);
 
     // Create shaders with decreasing artificial deadlocking
     for (uint32_t i = 0; i < MAX_EMULATE; ++i) {
@@ -454,7 +453,7 @@ void GetAllShaders(const GPUContext& gpu, const GPUBuffers& buffs,
         t.push_back("const DEADLOCK_MASK = " + std::to_string((1 << i) - 1) +
                     "u;");
         CreateShaderFromSource(gpu, buffs, &shaders->csdldfEmulate[i], "main",
-                               "../SharedShaders/csdldf_emulate.wgsl",
+                               "Shaders/csdldf_emulate.wgsl",
                                "CSDLDF Emulation", t);
     }
 
@@ -462,7 +461,7 @@ void GetAllShaders(const GPUContext& gpu, const GPUBuffers& buffs,
     std::vector<std::string> t;
     t.push_back("const DEADLOCK_MASK = 0xffffffffu;");
     CreateShaderFromSource(gpu, buffs, &shaders->csdldfEmulate[MAX_EMULATE],
-                           "main", "../SharedShaders/csdldf_emulate.wgsl",
+                           "main", "Shaders/csdldf_emulate.wgsl",
                            "CSDLDF Emulation", t);
 }
 
@@ -877,6 +876,12 @@ enum TestType {
     Full,
 };
 
+auto printUsage = []() {
+    std::cerr << "Usage: <TestType: \"csdl\"|\"csdldf\"|\"full\"> "
+                 "[\"record\"] [deviceName]"
+              << std::endl;
+};
+
 int main(int argc, char* argv[]) {
     constexpr uint32_t MISC_SIZE =
         5;  // Max scratch memory we use to track various stats
@@ -887,38 +892,44 @@ int main(int argc, char* argv[]) {
     constexpr uint32_t MAX_READBACK_SIZE =
         8192;  // Max size of our readback buffer
 
+    // We allow:
+    //   1) <TestType>                      e.g. "csdl"
+    //   2) <TestType> record               e.g. "csdl record"
+    //   3) <TestType> record <deviceName>  e.g. "csdl record myDevice"
+
+    if (argc < 2 || argc > 4) {
+        printUsage();
+        return EXIT_FAILURE;
+    }
+
+    // Parse the test type
     TestType testType;
-    bool shouldRecord;
-    if (argc == 2 || argc == 3) {
-        if (std::string(argv[1]) == "csdl") {
-            testType = Csdl;
-        } else if (std::string(argv[1]) == "csdldf") {
-            testType = Csdldf;
-        } else if (std::string(argv[1]) == "full") {
-            testType = Full;
-        } else {
-            std::cerr << "Usage: <Test Type: \"csdl\", \"csdldf\" or \"full\"> "
-                         "[\"record\"]"
-                      << std::endl;
-            return EXIT_FAILURE;
-        }
-        if (argc == 3) {
-            if (std::string(argv[2]) == "record") {
-                shouldRecord = true;
-            } else {
-                std::cerr << "Usage: <Test Type: \"csdl\", \"csdldf\" or "
-                             "\"full\"> [\"record\"]"
-                          << std::endl;
-                return EXIT_FAILURE;
+    std::string testTypeStr = argv[1];
+    if (testTypeStr == "csdl") {
+        testType = Csdl;
+    } else if (testTypeStr == "csdldf") {
+        testType = Csdldf;
+    } else if (testTypeStr == "full") {
+        testType = Full;
+    } else {
+        printUsage();
+        return EXIT_FAILURE;
+    }
+
+    // Should Record?
+    // Should Append Device Name?
+    bool shouldRecord = false;
+    std::string deviceName;
+    if (argc >= 3) {
+        if (std::string(argv[2]) == "record") {
+            shouldRecord = true;
+            if (argc == 4) {
+                deviceName = std::string(argv[3]) + "_";
             }
         } else {
-            shouldRecord = false;
+            printUsage();
+            return EXIT_FAILURE;
         }
-    } else {
-        std::cerr << "Usage: <Test Type: \"csdl\", \"csdldf\" or \"full\"> "
-                     "[\"record\"]"
-                  << std::endl;
-        return EXIT_FAILURE;
     }
 
     uint32_t size = 1 << 25;   // Size of the scan operation
@@ -928,7 +939,7 @@ int main(int argc, char* argv[]) {
     uint32_t readbackSize =
         256;  // How many elements to readback, must be less than max
 
-    // Test parameter rcontrols
+    // Test parameter controls
     bool shouldValidate = true;  // Perform validation?
     bool shouldReadback =
         false;               // Use readback to verify check results as needed
@@ -949,30 +960,31 @@ int main(int argc, char* argv[]) {
 
     // Run Memcopy kernel as a baseline.
     // We expect the speed of CSDL/CSDLDF
-    // to approach or equal the sped of Memcopy
+    // to approach or equal the speed of Memcopy
     args.shouldValidate = false;
-    Run("Memcopy", args, Memcpy);
+    Run(deviceName + "Memcopy", args, Memcpy);
     args.shouldValidate = shouldValidate;
 
     switch (testType) {
         case Csdl:
-            Run("CSDL", args, CSDL);
+            Run(deviceName + "CSDL", args, CSDL);
             break;
         case Csdldf:
             GetOccupancySync(args);
-            Run("CSDLDF", args, CSDLDF);
+            Run(deviceName + "CSDLDF", args, CSDLDF);
             break;
         case Full:
-            Run("RTS", args, RTS);
-            
+            Run(deviceName + "RTS", args, RTS);
+
             GetOccupancySync(args);
-            Run("CSDLDF", args, CSDLDF);
+            Run(deviceName + "CSDLDF", args, CSDLDF);
 
             args.shouldGetStats = true;
-            Run("CSDLDF_Stats", args, CSDLDFStats);
+            Run(deviceName + "CSDLDF_Stats", args, CSDLDFStats);
             for (int32_t i = MAX_EMULATE - 1; i >= 0; --i) {
                 args.fallbackPreset = static_cast<uint32_t>(i);
-                Run("CSDLDF_" + std::to_string(1 << i), args, CSDLDFEmulate);
+                Run(deviceName + "CSDLDF_" + std::to_string(1 << i), args,
+                    CSDLDFEmulate);
             }
             break;
         default:
