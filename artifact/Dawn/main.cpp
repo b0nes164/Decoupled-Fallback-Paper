@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+constexpr uint32_t MAX_EMULATE = 10;
+
 struct GPUContext {
     wgpu::Instance instance;
     wgpu::Device device;
@@ -29,8 +31,8 @@ struct Shaders {
     ComputeShader downsweep;
     ComputeShader csdl;
     ComputeShader csdldf;
-    ComputeShader csdldfStats;
-    ComputeShader csdldfEmulate;
+    ComputeShader csdldfOcc;
+    ComputeShader csdldfEmulate[MAX_EMULATE + 1];
     ComputeShader memcpy;
     ComputeShader validate;
 };
@@ -55,30 +57,28 @@ struct TestArgs {
     uint32_t batchSize;
     uint32_t threadBlocks;
     uint32_t readbackSize;
+    uint32_t fallbackPreset;
     bool shouldValidate = false;
     bool shouldReadback = false;
     bool shouldTime = false;
     bool shouldGetStats = false;
-    uint32_t (*MainPass)(const TestArgs&, wgpu::CommandEncoder*) = nullptr;
+    bool shouldRecord = false;
 };
 
-enum class ScanType {
-    Rts,
-    Csdl,
-    Csdldf,
-    CsdldfStats,
-    CsdldfEmulate,
-    Memcpy,
-    Unknown
+struct DataStruct {
+    std::vector<double> time;
+    std::vector<uint32_t> totalSpins;
+    std::vector<double> lookbackLength;
+    std::vector<uint32_t> fallbacksInitiated;
+    std::vector<uint32_t> successfulInsertions;
 };
 
-int GetGPUContext(GPUContext* context, uint32_t timestampCount) {
+void GetGPUContext(GPUContext* context, uint32_t timestampCount) {
     wgpu::InstanceDescriptor instanceDescriptor{};
     instanceDescriptor.features.timedWaitAnyEnable = true;
     wgpu::Instance instance = wgpu::CreateInstance(&instanceDescriptor);
     if (instance == nullptr) {
         std::cerr << "Instance creation failed!\n";
-        return EXIT_FAILURE;
     }
 
     wgpu::RequestAdapterOptions options = {};
@@ -130,8 +130,10 @@ int GetGPUContext(GPUContext* context, uint32_t timestampCount) {
         wgpu::FeatureName::TimestampQuery,
     };
 
-    auto errorCallback = [](const wgpu::Device& device, wgpu::ErrorType type, wgpu::StringView message) {
-        std::cerr << "Error: " << std::string(message.data, message.length) << std::endl;
+    auto errorCallback = [](const wgpu::Device& device, wgpu::ErrorType type,
+                            wgpu::StringView message) {
+        std::cerr << "Error: " << std::string(message.data, message.length)
+                  << std::endl;
     };
 
     wgpu::DeviceDescriptor devDescriptor{};
@@ -171,7 +173,6 @@ int GetGPUContext(GPUContext* context, uint32_t timestampCount) {
     (*context).device = device;
     (*context).queue = queue;
     (*context).querySet = querySet;
-    return EXIT_SUCCESS;
 }
 
 void GetGPUBuffers(const wgpu::Device& device, GPUBuffers* buffs,
@@ -358,7 +359,8 @@ void GetComputeShaderPipeline(const wgpu::Device& device,
     (*cs).label = csLabel;
 }
 
-std::string ReadWGSL(const std::string& path) {
+std::string ReadWGSL(const std::string& path,
+                     const std::vector<std::string>& pseudoArgs) {
     std::ifstream file(path);
     if (!file.is_open()) {
         std::cerr << "Failed to open file: " << path << std::endl;
@@ -366,8 +368,10 @@ std::string ReadWGSL(const std::string& path) {
     }
 
     std::stringstream buffer;
-    buffer << "enable subgroups;\n";  // Enable subgroups here. I dont think
-                                      // wgpu uses this notatation
+    buffer << "enable subgroups;\n";  // Enable subgroups here.
+    for (size_t i = 0; i < pseudoArgs.size(); ++i) {
+        buffer << pseudoArgs[i] << "\n";
+    }
     buffer << file.rdbuf();
     file.close();
     return buffer.str();
@@ -375,10 +379,10 @@ std::string ReadWGSL(const std::string& path) {
 
 void CreateShaderFromSource(const GPUContext& gpu, const GPUBuffers& buffs,
                             ComputeShader* cs, const char* entryPoint,
-                            const std::string& path,
-                            const std::string& csLabel) {
+                            const std::string& path, const std::string& csLabel,
+                            const std::vector<std::string>& pseudoArgs) {
     wgpu::ShaderSourceWGSL wgslSource = {};
-    std::string source = ReadWGSL(path);
+    std::string source = ReadWGSL(path, pseudoArgs);
     wgslSource.code = source.c_str();
     wgpu::ShaderModuleDescriptor desc = {};
     desc.nextInChain = &wgslSource;
@@ -415,38 +419,51 @@ void CreateShaderFromSource(const GPUContext& gpu, const GPUBuffers& buffs,
 
 void GetAllShaders(const GPUContext& gpu, const GPUBuffers& buffs,
                    Shaders* shaders) {
+    std::vector<std::string> empty;
     CreateShaderFromSource(gpu, buffs, &shaders->init, "main",
-                           "../SharedShaders/init.wgsl", "Init");
+                           "../SharedShaders/init.wgsl", "Init", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->reduce, "reduce",
-                           "../SharedShaders/rts.wgsl", "Reduce");
+                           "../SharedShaders/rts.wgsl", "Reduce", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->spineScan, "spine_scan",
-                           "../SharedShaders/rts.wgsl", "Spine Scan");
+                           "../SharedShaders/rts.wgsl", "Spine Scan", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->downsweep, "downsweep",
-                           "../SharedShaders/rts.wgsl", "Downsweep");
+                           "../SharedShaders/rts.wgsl", "Downsweep", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->csdl, "main",
-                           "../SharedShaders/csdl.wgsl", "CSDL");
+                           "../SharedShaders/csdl.wgsl", "CSDL", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->csdldf, "main",
-                           "../SharedShaders/csdldf.wgsl", "CSDLDF");
+                           "../SharedShaders/csdldf.wgsl", "CSDLDF", empty);
 
-    CreateShaderFromSource(gpu, buffs, &shaders->csdldfStats, "main",
-                           "../SharedShaders/csdldf_stats.wgsl",
-                           "CSDLDF Stats");
-
-    CreateShaderFromSource(gpu, buffs, &shaders->csdldfEmulate, "main",
-                           "../SharedShaders/csdldf_emulate.wgsl",
-                           "CSDLDF Emulation");
+    CreateShaderFromSource(gpu, buffs, &shaders->csdldfOcc, "main",
+                           "../SharedShaders/csdldf_occ.wgsl", "CSDLDF OCC",
+                           empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->memcpy, "main",
-                           "../SharedShaders/memcpy.wgsl",
-                           "Memcpy");
+                           "../SharedShaders/memcpy.wgsl", "Memcpy", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->validate, "main",
-                           "../SharedShaders/validate.wgsl", "Validate");
+                           "../SharedShaders/validate.wgsl", "Validate", empty);
+
+    // Create shaders with decreasing artificial deadlocking
+    for (uint32_t i = 0; i < MAX_EMULATE; ++i) {
+        std::vector<std::string> t;
+        t.push_back("const DEADLOCK_MASK = " + std::to_string((1 << i) - 1) +
+                    "u;");
+        CreateShaderFromSource(gpu, buffs, &shaders->csdldfEmulate[i], "main",
+                               "../SharedShaders/csdldf_emulate.wgsl",
+                               "CSDLDF Emulation", t);
+    }
+
+    // hardcode the last shader with 0xffffffff for NO deadlocking
+    std::vector<std::string> t;
+    t.push_back("const DEADLOCK_MASK = 0xffffffffu;");
+    CreateShaderFromSource(gpu, buffs, &shaders->csdldfEmulate[MAX_EMULATE],
+                           "main", "../SharedShaders/csdldf_emulate.wgsl",
+                           "CSDLDF Emulation", t);
 }
 
 void SetComputePass(const ComputeShader& cs, wgpu::CommandEncoder* comEncoder,
@@ -545,7 +562,7 @@ void CopyAndReadbackSync(const GPUContext& gpu, wgpu::Buffer* srcReadback,
 }
 
 bool Validate(const GPUContext& gpu, GPUBuffers* buffs,
-                  const ComputeShader& validate) {
+              const ComputeShader& validate) {
     wgpu::CommandEncoderDescriptor comEncDesc = {};
     comEncDesc.label = "Validate Command Encoder";
     wgpu::CommandEncoder comEncoder =
@@ -596,7 +613,6 @@ uint64_t GetTime(const GPUContext& gpu, GPUBuffers* buffs, uint32_t passCount) {
     for (uint32_t i = 0; i < passCount; ++i) {
         totalTime += timeOut[i * 2 + 1] - timeOut[i * 2];
     }
-    //std::cout << totalTime << std::endl;
     return totalTime;
 }
 
@@ -661,10 +677,11 @@ uint32_t CSDLDF(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
 uint32_t CSDLDFStats(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
     const uint32_t passCount = 1;
     if (args.shouldTime) {
-        SetComputePassTimed(args.shaders.csdldfStats, comEncoder,
+        SetComputePassTimed(args.shaders.csdldfEmulate[MAX_EMULATE], comEncoder,
                             args.gpu.querySet, args.threadBlocks, 0);
     } else {
-        SetComputePass(args.shaders.csdldfStats, comEncoder, args.threadBlocks);
+        SetComputePass(args.shaders.csdldfEmulate[MAX_EMULATE], comEncoder,
+                       args.threadBlocks);
     }
     return passCount;
 }
@@ -672,10 +689,12 @@ uint32_t CSDLDFStats(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
 uint32_t CSDLDFEmulate(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
     const uint32_t passCount = 1;
     if (args.shouldTime) {
-        SetComputePassTimed(args.shaders.csdldfEmulate, comEncoder,
-                            args.gpu.querySet, args.threadBlocks, 0);
+        SetComputePassTimed(args.shaders.csdldfEmulate[args.fallbackPreset],
+                            comEncoder, args.gpu.querySet, args.threadBlocks,
+                            0);
     } else {
-        SetComputePass(args.shaders.csdldfEmulate, comEncoder, args.threadBlocks);
+        SetComputePass(args.shaders.csdldfEmulate[args.fallbackPreset],
+                       comEncoder, args.threadBlocks);
     }
     return passCount;
 }
@@ -683,29 +702,85 @@ uint32_t CSDLDFEmulate(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
 uint32_t Memcpy(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
     const uint32_t passCount = 1;
     if (args.shouldTime) {
-        SetComputePassTimed(args.shaders.memcpy, comEncoder,
-                            args.gpu.querySet, args.threadBlocks, 0);
+        SetComputePassTimed(args.shaders.memcpy, comEncoder, args.gpu.querySet,
+                            args.threadBlocks, 0);
     } else {
         SetComputePass(args.shaders.memcpy, comEncoder, args.threadBlocks);
     }
     return passCount;
 }
 
-void Run(std::string testLabel, const TestArgs& args) {
-    uint32_t totalSpins = 0;
-    uint32_t fallbacksAttempted = 0;
-    uint32_t successfulInsertions = 0;
-    uint32_t lookbackLength = 0;
+uint32_t GetOccupancySync(const TestArgs& args) {
+    wgpu::CommandEncoderDescriptor comEncDesc = {};
+    comEncDesc.label = "Command Encoder";
+    wgpu::CommandEncoder comEncoder =
+        args.gpu.device.CreateCommandEncoder(&comEncDesc);
+    SetComputePass(args.shaders.init, &comEncoder, 256);
+    SetComputePass(args.shaders.csdldfOcc, &comEncoder, args.threadBlocks);
+    wgpu::CommandBuffer comBuffer = comEncoder.Finish();
+    args.gpu.queue.Submit(1, &comBuffer);
+    QueueSync(args.gpu);
+    std::vector<uint32_t> readOut(1);
+    CopyAndReadbackSync(args.gpu, &args.buffs.misc, &args.buffs.readback,
+                        &readOut, 1, 1);
+    std::cout << std::endl;
+    std::cout << "Estimated CSDLDF Occupancy: " << readOut[0] << std::endl;
+    return readOut[0];
+}
+
+void RecordToCSV(const TestArgs& args, const DataStruct& data,
+                 const std::string& filename) {
+    std::ofstream file(filename + ".csv");
+
+    if (args.shouldGetStats) {
+        // Write full headers
+        file << "time,totalSpins,lookbackLength,fallbacksInitiated,"
+                "successfulInsertions\n";
+
+        // Write full data
+        size_t rows = data.time.size();
+        for (size_t i = 0; i < rows; ++i) {
+            file << data.time[i] << "," << data.totalSpins[i] << ","
+                 << data.lookbackLength[i] << "," << data.fallbacksInitiated[i]
+                 << "," << data.successfulInsertions[i] << "\n";
+        }
+    } else {
+        // Write minimal headers
+        file << "time\n";
+
+        // Write only time data
+        for (double t : data.time) {
+            file << t << "\n";
+        }
+    }
+
+    file.close();
+}
+
+void Run(std::string testLabel, const TestArgs& args,
+         uint32_t (*MainPass)(const TestArgs&, wgpu::CommandEncoder*)) {
+    DataStruct data;
+    if (args.shouldRecord) {
+        data.time.resize(args.batchSize);
+        data.totalSpins.resize(args.batchSize);
+        data.lookbackLength.resize(args.batchSize);
+        data.fallbacksInitiated.resize(args.batchSize);
+        data.successfulInsertions.resize(args.batchSize);
+    }
 
     uint32_t testsPassed = 0;
     uint64_t totalTime = 0ULL;
-    for (uint32_t i = 0; i < args.batchSize; ++i) {
+    uint32_t totalSpins = 0;
+    uint32_t lookbackLength = 0;
+    uint32_t fallbacksInitiated = 0;
+    uint32_t successfulInsertions = 0;
+    for (uint32_t i = 0; i <= args.batchSize; ++i) {
         wgpu::CommandEncoderDescriptor comEncDesc = {};
         comEncDesc.label = "Command Encoder";
         wgpu::CommandEncoder comEncoder =
             args.gpu.device.CreateCommandEncoder(&comEncDesc);
         SetComputePass(args.shaders.init, &comEncoder, 256);
-        uint32_t passCount = args.MainPass(args, &comEncoder);
+        uint32_t passCount = MainPass(args, &comEncoder);
         if (args.shouldTime) {
             ResolveTimestampQuery(&args.buffs, args.gpu.querySet, &comEncoder,
                                   passCount);
@@ -715,24 +790,40 @@ void Run(std::string testLabel, const TestArgs& args) {
         QueueSync(args.gpu);
 
         // The first test is always discarded to prep caches and TLB
-        if (args.shouldTime && i != 0) {
-            totalTime += GetTime(args.gpu, &args.buffs, passCount);
-        }
+        if (i != 0) {
+            if (args.shouldTime) {
+                const uint64_t t = GetTime(args.gpu, &args.buffs, passCount);
+                totalTime += t;
+                if (args.shouldRecord) {
+                    data.time[i - 1] = static_cast<double>(args.size) / t;
+                }
+            }
 
-        if (args.shouldGetStats) {
-            std::vector<uint32_t> stats(4, 0);
-            GetFallbackStatistics(args.gpu, &args.buffs, &stats);
-            totalSpins += stats[0];
-            fallbacksAttempted += stats[1];
-            successfulInsertions += stats[2];
-            lookbackLength += stats[3];
-        }
+            if (args.shouldGetStats) {
+                std::vector<uint32_t> stats(4, 0);
+                GetFallbackStatistics(args.gpu, &args.buffs, &stats);
+                totalSpins += stats[0];
+                fallbacksInitiated += stats[1];
+                successfulInsertions += stats[2];
+                lookbackLength += stats[3];
+                if (args.shouldRecord) {
+                    data.totalSpins[i - 1] = stats[0];
+                    data.fallbacksInitiated[i - 1] = stats[1];
+                    data.successfulInsertions[i - 1] = stats[2];
+                    data.lookbackLength[i - 1] =
+                        static_cast<double>(stats[3]) / args.threadBlocks;
+                }
+            }
 
-        if (args.shouldValidate) {
-            testsPassed += Validate(args.gpu, &args.buffs, args.shaders.validate);
+            if (args.shouldValidate) {
+                testsPassed +=
+                    Validate(args.gpu, &args.buffs, args.shaders.validate);
+            }
         }
     }
     std::cout << std::endl;
+
+    std::cout << testLabel << " Tests Complete at size: " << args.size << "\n";
 
     if (args.shouldReadback) {
         ReadbackAndPrintSync(args.gpu, &args.buffs, args.readbackSize);
@@ -740,23 +831,25 @@ void Run(std::string testLabel, const TestArgs& args) {
 
     if (args.shouldGetStats) {
         double avgTotalSpins = static_cast<double>(totalSpins) / args.batchSize;
-        double avgLookbackLength = static_cast<double>(lookbackLength) / args.batchSize / args.threadBlocks;
+        double avgLookbackLength = static_cast<double>(lookbackLength) /
+                                   args.batchSize / args.threadBlocks;
         double avgFallbacksAttempted =
-            static_cast<double>(fallbacksAttempted) / args.batchSize;
+            static_cast<double>(fallbacksInitiated) / args.batchSize;
         double avgSuccessfulInsertions =
             static_cast<double>(successfulInsertions) / args.batchSize;
         std::cout << "Threadblocks Launched: " << args.threadBlocks
                   << std::endl;
         std::cout << "Average Total Spins: " << avgTotalSpins << std::endl;
-        std::cout << "Average Lookback Length Per Workgroup" << avgLookbackLength << std::endl;
-        std::cout << "Average Total Fallbacks Attempted: "
+        std::cout << "Average Lookback Length Per Workgroup: "
+                  << avgLookbackLength << std::endl;
+        std::cout << "Average Total Fallbacks Initiated: "
                   << avgFallbacksAttempted << std::endl;
         std::cout << "Average Total Successful Insertions: "
                   << avgSuccessfulInsertions << std::endl;
     }
 
     if (args.shouldValidate) {
-        std::cout << testsPassed << "/" << args.batchSize << " " << testLabel;
+        std::cout << testsPassed << "/" << args.batchSize;
         if (testsPassed == args.batchSize) {
             std::cout << " ALL TESTS PASSED" << std::endl;
         } else {
@@ -769,27 +862,20 @@ void Run(std::string testLabel, const TestArgs& args) {
         dTime /= 1e9;
         std::cout << "Total time elapsed " << dTime << std::endl;
         double speed =
-            ((uint64_t)args.size * (uint64_t)(args.batchSize - 1)) / dTime;
+            ((uint64_t)args.size * (uint64_t)(args.batchSize)) / dTime;
         printf("Estimated speed %e ele/s\n", speed);
+    }
+
+    if (args.shouldRecord) {
+        RecordToCSV(args, data, testLabel);
     }
 }
 
-ScanType ParseScanType(const std::string& str) {
-    if (str == "rts")
-        return ScanType::Rts;
-    else if (str == "csdl")
-        return ScanType::Csdl;
-    else if (str == "csdldf")
-        return ScanType::Csdldf;
-    else if (str == "csdldf_stats")
-        return ScanType::CsdldfStats;
-    else if (str == "csdldf_emulate")
-        return ScanType::CsdldfEmulate;
-    else if (str == "memcpy")
-        return ScanType::Memcpy;
-    else
-        return ScanType::Unknown;
-}
+enum TestType {
+    Csdl,
+    Csdldf,
+    Full,
+};
 
 int main(int argc, char* argv[]) {
     constexpr uint32_t MISC_SIZE =
@@ -801,106 +887,96 @@ int main(int argc, char* argv[]) {
     constexpr uint32_t MAX_READBACK_SIZE =
         8192;  // Max size of our readback buffer
 
-    if (argc != 4) {
-        std::cerr << "Usage: <Scan Type: String> <Input Size as Power of Two: "
-                     "uint32_t> <Test Batch Size: uint32_t>"
+    TestType testType;
+    bool shouldRecord;
+    if (argc == 2 || argc == 3) {
+        if (std::string(argv[1]) == "csdl") {
+            testType = Csdl;
+        } else if (std::string(argv[1]) == "csdldf") {
+            testType = Csdldf;
+        } else if (std::string(argv[1]) == "full") {
+            testType = Full;
+        } else {
+            std::cerr << "Usage: <Test Type: \"csdl\", \"csdldf\" or \"full\"> "
+                         "[\"record\"]"
+                      << std::endl;
+            return EXIT_FAILURE;
+        }
+        if (argc == 3) {
+            if (std::string(argv[2]) == "record") {
+                shouldRecord = true;
+            } else {
+                std::cerr << "Usage: <Test Type: \"csdl\", \"csdldf\" or "
+                             "\"full\"> [\"record\"]"
+                          << std::endl;
+                return EXIT_FAILURE;
+            }
+        } else {
+            shouldRecord = false;
+        }
+    } else {
+        std::cerr << "Usage: <Test Type: \"csdl\", \"csdldf\" or \"full\"> "
+                     "[\"record\"]"
                   << std::endl;
         return EXIT_FAILURE;
     }
 
-    std::string scan_type_str = argv[1];
-    ScanType scan_type = ParseScanType(scan_type_str);
-    if (scan_type == ScanType::Unknown) {
-        std::cerr << "Error: Unknown scan type " << scan_type_str << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    uint32_t powerOfTwo;
-    uint32_t batchSize;
-    try {
-        powerOfTwo = std::stoul(argv[2]);
-        if (powerOfTwo > 25 || argv[2][0] == '-') {
-            throw std::runtime_error(
-                "Error: input size power must be a value between 0 and 25");
-        }
-        batchSize = std::stoul(argv[3]);
-        if (argv[3][0] == '-') {
-            throw std::runtime_error(
-                "Error: test batch size must not be negative");
-        }
-    } catch (const std::invalid_argument& e) {
-        std::cerr << "Error: Arguments must be unsigned integers." << std::endl;
-        return EXIT_FAILURE;
-    } catch (const std::out_of_range& e) {
-        std::cerr << "Error: Arguments are out of range for unsigned integers."
-                  << std::endl;
-        return EXIT_FAILURE;
-    } catch (const std::runtime_error& e) {
-        std::cerr << e.what() << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    uint32_t size =
-        1 << powerOfTwo;     // Input size to test, must be a multiple of 4
-    uint32_t threadBlocks =  // Thread Blocks to launch based on input
+    uint32_t size = 1 << 25;   // Size of the scan operation
+    uint32_t batchSize = 500;  // How many tests to run
+    uint32_t threadBlocks =    // Thread Blocks to launch based on input
         (size + PART_SIZE - 1) / PART_SIZE;
-    uint32_t readbackSize = 256;  // How many elements to readback, must be less than max
-    bool shouldValidate = true;   // Perform validation?
-    bool shouldReadback = false;  // Use readback to sanity check results
-    bool shouldTime = true;       // Time results?
+    uint32_t readbackSize =
+        256;  // How many elements to readback, must be less than max
+
+    // Test parameter rcontrols
+    bool shouldValidate = true;  // Perform validation?
+    bool shouldReadback =
+        false;               // Use readback to verify check results as needed
+    bool shouldTime = true;  // Time results?
 
     GPUContext gpu;
-    if (GetGPUContext(&gpu, MAX_TIMESTAMPS) == EXIT_FAILURE) {
-        return EXIT_FAILURE;
-    }
     GPUBuffers buffs;
+    Shaders shaders;
+    GetGPUContext(&gpu, MAX_TIMESTAMPS);
     GetGPUBuffers(gpu.device, &buffs, threadBlocks, MAX_TIMESTAMPS, size,
                   MISC_SIZE, MAX_READBACK_SIZE);
-    Shaders shaders;
     GetAllShaders(gpu, buffs, &shaders);
     InitializeUniforms(gpu, &buffs, size, threadBlocks);
-
     TestArgs args = {
-        gpu,          buffs,        shaders,        size,           batchSize,
-        threadBlocks, readbackSize, shouldValidate, shouldReadback, shouldTime,
-    };
+        gpu,          buffs,        shaders,     size,           batchSize,
+        threadBlocks, readbackSize, 0,           shouldValidate, shouldReadback,
+        shouldTime,   false,        shouldRecord};
 
-    try {
-        switch (scan_type) {
-            case ScanType::Rts:
-                args.MainPass = RTS;
-                Run("RTS", args);
-                break;
-            case ScanType::Csdl:
-                args.MainPass = CSDL;
-                Run("CSDL", args);
-                break;
-            case ScanType::Csdldf:
-                args.MainPass = CSDLDF;
-                Run("CSDLDf", args);
-                break;
-            case ScanType::CsdldfStats:
-                args.shouldGetStats = true;
-                args.MainPass = CSDLDFStats;
-                Run("CSDLDf_Stats", args);
-                break;
-            case ScanType::CsdldfEmulate:
-                args.MainPass = CSDLDFEmulate;
-                Run("CSDLDF_Emulate", args);
-                break;
-            case ScanType::Memcpy:
-                args.MainPass = Memcpy;
-                args.shouldValidate = false;
-                Run("Memcpy", args);
-                break;
-            default:
-                std::cerr << "Error: Unsupported scan type" << std::endl;
-                return EXIT_FAILURE;
-        }
-    } catch (const std::runtime_error& e) {
-        std::cerr << e.what() << std::endl;
-        return EXIT_FAILURE;
+    // Run Memcopy kernel as a baseline.
+    // We expect the speed of CSDL/CSDLDF
+    // to approach or equal the sped of Memcopy
+    args.shouldValidate = false;
+    Run("Memcopy", args, Memcpy);
+    args.shouldValidate = shouldValidate;
+
+    switch (testType) {
+        case Csdl:
+            Run("CSDL", args, CSDL);
+            break;
+        case Csdldf:
+            GetOccupancySync(args);
+            Run("CSDLDF", args, CSDLDF);
+            break;
+        case Full:
+            Run("RTS", args, RTS);
+            
+            GetOccupancySync(args);
+            Run("CSDLDF", args, CSDLDF);
+
+            args.shouldGetStats = true;
+            Run("CSDLDF_Stats", args, CSDLDFStats);
+            for (int32_t i = MAX_EMULATE - 1; i >= 0; --i) {
+                args.fallbackPreset = static_cast<uint32_t>(i);
+                Run("CSDLDF_" + std::to_string(1 << i), args, CSDLDFEmulate);
+            }
+            break;
+        default:
+            break;
     }
-
     return EXIT_SUCCESS;
 }

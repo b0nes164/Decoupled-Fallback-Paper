@@ -21,7 +21,7 @@ var<storage, read_write> scan_bump: atomic<u32>;
 var<storage, read_write> spine: array<array<atomic<u32>, 2>>;
 
 @group(0) @binding(5)
-var<storage, read_write> misc: array<u32>;
+var<storage, read_write> misc: array<atomic<u32>>;
 
 const BLOCK_DIM = 256u;
 const SPLIT_MEMBERS = 2u;
@@ -42,7 +42,12 @@ const MAX_SPIN_COUNT = 4u;
 const LOCKED = 1u;
 const UNLOCKED = 0u;
 
-const DEADLOCK_MASK = 511u;
+//Due to lack of metaprogramming in WGSL,
+//we manually pass a value for this into the
+//shader compiler when we compile
+//const DEADLOCK_MASK;  
+
+const STATISTICS_INDEX_START = 1u;
 
 var<workgroup> wg_control: u32;
 var<workgroup> wg_broadcast: u32;
@@ -166,6 +171,12 @@ fn main(
         atomicStore(&spine[tile_id][threadid.x], t);
     }
 
+    //Statistics that we will gather
+    var total_spins = 0u;
+    var lookback_length = 1u;
+    var fallbacks_initiated = 0u;
+    var successful_fallback_insertions = 0u;
+
     //lookback, single subgroup
     if(tile_id != 0u){
         var prev_red = 0u;
@@ -198,14 +209,17 @@ fn main(
                             prev_red += join(flag_payload & VALUE_MASK, threadid.x);
                             spin_count = 0u;
                             lookback_id -= 1u;
+                            lookback_length += 1u;
                         }
                     } else {
                         spin_count += 1u;
+                        total_spins += 1u;
                     }
                 }
 
                 if(threadid.x == 0 && spin_count == MAX_SPIN_COUNT) {
                     wg_broadcast = lookback_id;
+                    fallbacks_initiated += 1u;
                 }
             }
 
@@ -250,8 +264,11 @@ fn main(
                 if(threadid.x < lane_count){
                     let f_split = split(f_red, threadid.x) | select(FLAG_READY, FLAG_INCLUSIVE, fallback_id == 0u);
                     var f_payload = 0u;
-                    if(threadid.x < SPLIT_MEMBERS){
+                    if(threadid.x < SPLIT_MEMBERS) {
                         f_payload = atomicMax(&spine[fallback_id][threadid.x], f_split);
+                        if(f_payload == 0u){
+                            successful_fallback_insertions += 1u;
+                        }
                     }
                     let incl_found = unsafeBallot((f_payload & FLAG_MASK) == FLAG_INCLUSIVE) == ALL_READY;
                     if(incl_found){
@@ -271,6 +288,7 @@ fn main(
                         }
                     } else {
                         lookback_id -= 1u;
+                        lookback_length += 1u;
                     }
                 }
                 control_flag = workgroupUniformLoad(&wg_control);
@@ -296,5 +314,12 @@ fn main(
                 i += lane_count;
             }
         }
+    }
+
+    if(threadid.x == 0u){
+        atomicAdd(&misc[STATISTICS_INDEX_START], total_spins);
+        atomicAdd(&misc[STATISTICS_INDEX_START + 1u], fallbacks_initiated);
+        atomicAdd(&misc[STATISTICS_INDEX_START + 2u], successful_fallback_insertions);
+        atomicAdd(&misc[STATISTICS_INDEX_START + 3u], lookback_length);
     }
 }
