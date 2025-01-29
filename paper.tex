@@ -300,17 +300,17 @@ Like \emph{Scalar-Fallback}, we choose \emph{mutual exclusion} as our approach t
   \small
   \SetAlgoLined
   \KwGlobalIn{%
-    $in[]$, 
-    $out[]$, 
-    $spine[]$, 
-    $tileBump$, 
+    $in[]$,
+    $out[]$,
+    $spine[]$,
+    $tileBump$,
   }
   \KwSharedIn{%
-    $wg\_partials[]$, 
-    $wg\_fallback[]$,  
-    $wg\_prev\_reduction$, 
-    $wg\_broadcast$, 
-    $wg\_control$, 
+    $wg\_partials[]$,
+    $wg\_fallback[]$,
+    $wg\_prev\_reduction$,
+    $wg\_broadcast$,
+    $wg\_control$,
   }
   \KwGlobalOut{$out[]$ inclusive scan of $in[]$}
   \KwConstants{Vectors per thread $p$}
@@ -379,7 +379,7 @@ We desire the smallest intra-workgroup spine possible. Not only does this reduce
   \KwSharedIn{ Array of subgroup partial reductions $x$ }
   \KwSharedOut{ Post-scanned array $x$ }
   \KwConstants{ Workgroup Size $W$, Subgroup Size $S$ }
-  
+
   $spine\_length \gets W / S$\;
   $alignment \gets 1 << \text{divRoundUp}(\log_2(spine\_length), \log_2(S)) \cdot \log_2(S)$\;
 
@@ -421,12 +421,12 @@ We desire the smallest intra-workgroup spine possible. Not only does this reduce
     \textbf{barrier()}\;
   }
   \Return{$x$}\;
-  \caption{Workgroup-Wide Scan}
+  \caption{Workgroup-Wide Scan. \john{Sorry to say that every one of those variable names need to be wrapped in \texttt{\textbackslash textit}. ``Typeset in math mode'' is not the same as ``Typeset in italics'' (see $offset$ vs.\ \textit{offset}).}}
   \label{alg:example}
 \end{algorithm}
 
 \subsubsection{Workgroup-Wide Scan}
-The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{} scan network embedded with Kogge-Stone subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase is negligible due to our overall thriftiness, including the deliberate retention of vectors in registers and the efficiency of subgroup raking. Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; zero bank conflicts across all supported subgroup sizes. \footnote{Since we also require a workgroup-wide pure reduce operation, this can be achieved by omitting the fanout operation and substituting the subgroup Kogge-Stone scan with a subgroup butterfly reduction.}
+The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{} scan network embedded with Kogge-Stone subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase is negligible due to our overall thriftiness, including the deliberate retention of vectors in registers and the efficiency of subgroup raking. Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; zero bank conflicts across all supported subgroup sizes.\footnote{Since we also require a workgroup-wide pure reduce operation, this can be achieved by omitting the fanout operation and substituting the subgroup Kogge-Stone scan with a subgroup butterfly reduction.}
 
 \subsection{Decoupled-Fallback}
 To reiterate, the goal of a lookback is twofold: to determine the reduction of all preceding work tiles and to communicate those values to succeeding tiles to accelerate their own lookback operations. Following the \emph{Decoupled-Lookback} technique, we model the spine as a finite state machine, where each work tile comprising the spine may exist in one of three states:
@@ -436,10 +436,13 @@ To reiterate, the goal of a lookback is twofold: to determine the reduction of a
   \item \textbf{Inclusive}: The tile has completed its lookback and updated its posting to reflect the inclusive reduction.
 \end{itemize}
 Each lookback is, therefore, a traversal from the \emph{Ready} state to the \emph{Inclusive} state. To illustrate this process, we present a flowchart (SEE LOOKBACK FLOWCHART).
+\john{It's helpful, I think, to also explicitly say what data is stored globally as the spine (I think, for each workgroup, one data element and one state).}
 
 \subsubsection{Decoupled-Fallback}
-\thomas{Given that "lock" has an extensive history of use in computer science and this is not that kind of lock, perhaps a better choice of phrase would be better. I've decided to refer to it as a "control flag"}
+\thomas{Given that "lock" has an extensive history of use in computer science and this is not that kind of lock, perhaps a better choice of phrase would be better. I've decided to refer to it as a "control flag"} \john{Good idea. ``Status flag'', perhaps?}
 Prior to kernel launch, all tiles in the spine are initialized to the \emph{Not Ready} state. During partition index acquisition, we also initialize a shared memory \emph{control flag} to facilitate synchronization within the workgroup during the \emph{Decoupled-Fallback} phase. This flag governs both the initiation of fallback operations and the entry and exit of the entire phase, which begins immediately after the workgroup-wide scan over partial reductions is completed.
+\john{Maybe a sentence that describes the state progression at a high level? e.g., ``the state of each workgroup begins at INVALID, moves to READY, then to INCLUSIVE, the state never moves backwards, each workgroup can operate independently and change its own state and also, during lookback, the state of preceding workgroups'', that sort of thing.}
+\john{I might also say something like ``in the following discussion, we assume the `add' monoid and use terms like `add' and `sum', but the algorithm works with any monoid''. That gets rid of awkward terms like ``accumulate''. I don't feel strongly about this.}
 \begin{figure}[h]
   \centering
   \includegraphics[width=\linewidth]{graphics/FlowChart.pdf}
@@ -451,36 +454,36 @@ Prior to kernel launch, all tiles in the spine are initialized to the \emph{Not 
   \item \textbf{Initialization:}
         \begin{itemize}
           \item The control flag, initialized to \emph{Locked}, signals that the workgroup should enter the lookback phase.
-          \item Each workgroup initializes a \emph{previous reduction} variable with the identity element of the monoid to hold the accumulated reductions of preceding tiles.
-          \item The workgroup prepares to traverse the spine, starting with its immediate predecessor tile.
+          \item Each workgroup initializes a \john{shared workgroup-local (?)} \emph{previous reduction} variable with the identity element of the monoid to hold the accumulated reductions of preceding tiles.
+          \item The workgroup prepares to traverse the spine, starting with its immediate predecessor tile. \john{Carefully look at the way this is worded with respect to ``immediate predecessor'' (previous sentence) vs.\ ``current'' (next sentence). I think here we want to say that we set the current tile to the immediate predecessor, and then the next sentence is consistent.}
         \end{itemize}
 
   \item \textbf{Lookback:}
-  \begin{itemize}
-      \item The workgroup queries the state of the current tile. 
-      \item If the tile is in the \emph{Ready} state, the workgroup accumulates the value and moves to the preceding tile, repeating this step.
-      \item If the tile is in the \emph{Inclusive} state, the workgroup accumulates the value and proceeds directly to step 4.
-      \item If the tile is in the \emph{Not Ready} state, the workgroup spins for a limited number of iterations, defined by the \emph{Maximum Spin Count}. If the spin count exceeds the \emph{Maximum Spin Count}, the workgroup signals a fallback operation leaving the control flag \emph{Locked} and proceeds to the next step.
-  \end{itemize}
+        \begin{itemize}
+          \item The workgroup queries the state of the current tile.
+          \item If the tile is in the \emph{Ready} state, the workgroup accumulates the value and moves to \john{sets the current tile to} the preceding tile, repeating this step. \john{until reaching a tile that is not \emph{Ready}.}
+          \item If the tile is in the \emph{Inclusive} state, the workgroup accumulates the value and proceeds directly to step 4.
+          \item If the tile is in the \emph{Not Ready} state, the workgroup spins for a limited number of iterations, defined by the \emph{Maximum Spin Count}. If the spin count exceeds the \emph{Maximum Spin Count}, the workgroup signals a fallback operation \john{I don't get ``signals''. To whom are we signaling? What is signaled?} leaving the control flag \emph{Locked} and proceeds to the next step. \john{I think this is the place where decoupled-lookback fails without FPG\@. If so, say so, and why it fails. It underscores the central message of the paper, and is thus worth reiterating.}
+        \end{itemize}
 
-  \item \textbf{Fallback:}
+  \item \textbf{Fallback:} \john{Start with a sentence that describes \emph{why} we've reached this phase. ``Even after waiting, we see that a previous workgroup has not completed the reduction of its tile.'', that sort of thing.}
         \begin{itemize}
           \item The workgroup computes the reduction of the blocking tile by processing the corresponding elements directly. This process involves a workgroup-wide reduction using additional shared memory to aggregate partial subgroup results.
           \item Once the fallback reduction is complete, the workgroup \emph{attempts} to post the reduction to global memory and update the tile's state to \emph{Ready}.
-          \item As this update attempt is performed atomically, the workgroup reads back the blocking tile's immediate state:
+          \item As this update attempt is performed atomically, the workgroup reads back the blocking tile's immediate state: \john{``immediate''? instead, ``most recent''?}
                 \begin{itemize}
-                  \item If the state is \emph{Inclusive}, the fallback value is discarded, and the workgroup accumulates the value before proceeding to step 4.
+                  \item If the state is \emph{Inclusive}, the fallback value calculated by our workgroup is discarded, and our workgroup accumulates the value then proceeds to step 4.
                   \item If the blocking tile is the first in the spine, the workgroup has reached the start of the spine and proceeds to step 4.
-                  \item Otherwise, the workgroup resumes the lookback, starting with the preceding tile.
+                  \item Otherwise, the workgroup resumes the lookback, starting with the preceding tile. \john{\ldots\ by setting the current tile to \ldots\ I'm trying to not be sloppy with ``starting with'' given that we have a concept of ``current tile''.}
                 \end{itemize}
         \end{itemize}
 
   \item \textbf{Finalization:}
-  \begin{itemize}
-      \item Upon completing the lookback or fallback, the local reduction is added to the \emph{previous reduction} to compute the inclusive reduction, which is then posted to global memory, transitioning the tile state to \emph{Inclusive}.
-      \item The \emph{previous reduction} is posted to shared memory for the workgroup to consume and propagate as necessary.
-      \item The control flag is updated to \emph{Unlocked} to signal the exit of the \emph{Decoupled-Fallback} phase, allowing subsequent operations to proceed.
-  \end{itemize}
+        \begin{itemize}
+          \item Upon completing the lookback or fallback, the local reduction is added to the \emph{previous reduction} to compute the inclusive reduction, which is then posted to global memory, transitioning the tile state to \emph{Inclusive}.
+          \item The \emph{previous reduction} is posted to workgroup shared memory for the workgroup to consume and propagate as necessary. \john{``consume and propagate'' is super non-specific. What is happening here and how is it different than the next sentence?}
+          \item The control flag is updated to \emph{Unlocked} to signal the exit of the \emph{Decoupled-Fallback} phase, allowing subsequent operations to proceed. \john{Be specific about what happens here! I'm presuming part of this item's work + the previous item's work is ``use the previous reduction as the starting point for scanning then outputting our current tile''. ``subsequent operations'' is super non-specific.} \john{In this item + the previous item, I bet there's some ordering constraints, either for correctness or for performance. For instance, I bet the highest priority is to add the previous reduction to my reduction and posting the result, since that propagation speed across tiles is probably really important for performance. Perhaps worth pointing out. Does the flag-unset have any ordering constraints in terms of correctness?}
+        \end{itemize}
 \end{enumerate}
 
 \subsubsection{Tile State Implementation}
@@ -503,6 +506,7 @@ To evaluate the performance of \emph{Decoupled-Fallback}, we compare it against 
 \begin{figure}[h!]
   \centering
   \includegraphics[width=\linewidth]{graphics/speedup.pdf}
+  \john{\caption{This data (10 data points, which is pretty scant) is likely better presented as a table (also a better use of precious paper real estate). Also, make tables and figures float (don't do \texttt{[h!]}, just leave that blank, \LaTeX\ is good at page layout.)}}
 \end{figure}
 Since WebGPU limits device-side timestamps to compute or render passes, we implement a custom Memcopy kernel for timing purposes. Similarly, as there are no existing WebGPU implementations of RTS, we rely on our own optimized version for comparison. To ensure a competitive evaluation, our RTS implementation employs a variable-launch main kernel with a single workgroup performing a serial spine scan, as we found raking to be less performant in practice. Apart from this adjustment, the intraworkgroup implementation in RTS is identical to that used in \emph{Decoupled-Fallback}.
 
@@ -611,8 +615,8 @@ While minimal depth is preserved regardless of the subgroup size, this result ca
 \section{Artifact}
 
 \subsection{Availability}
-We provide our artifact in the following GitHub repository: 
-\thomas{Will anonymize with GithubAnonymous once we are ready.} 
+We provide our artifact in the following GitHub repository:
+\thomas{Will anonymize with GithubAnonymous once we are ready.}
 Due to the aforementioned issues with WGSL transpilers, we choose Dawn as our WebGPU implementation.
 
 \subsection{Requirements}
@@ -634,20 +638,20 @@ Although native WebGPU is supported on various operating systems—most notably 
 \subsubsection{Building Dawn}
 \begin{enumerate}
   \item[(0)] Dawn depends on the following packages (Ubuntu package names):
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
-sudo apt install libxrandr-dev 
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+sudo apt install libxrandr-dev
   libxinerama-dev libxcursor-dev libxi-dev \
   libx11-xcb-dev mesa-common-dev
   \end{lstlisting}
-  
+
   \item Clone the Dawn repository:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 git clone https://dawn.googlesource.com/dawn
 RESET HEAD here to a specific commit. . . to lock in?
   \end{lstlisting}
-  
+
   \item Build and install Dawn with your build tool and compiler of choice:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 cd dawn
 cmake -S . -B out/Release \
   -DDAWN_FETCH_DEPENDENCIES=ON \
@@ -666,24 +670,24 @@ After successfully building and installing Dawn, follow these steps to build the
 
 \begin{enumerate}
   \item Navigate to the artifact directory:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 cd Decoupled-Fallback-Paper/artifact/Dawn
   \end{lstlisting}
-  
+
   \item Set the `CMAKE\_PREFIX\_PATH` to point to your Dawn installation directory:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 export CMAKE_PREFIX_PATH=/path/to/ \
 dawn/install/Release
   \end{lstlisting}
-  
+
   \item Build the artifact:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 cmake -S . -B out/Release \
   -DCMAKE_BUILD_TYPE=Release
   \end{lstlisting}
-  
+
   \item Compile the project:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 cmake --build out/Release
   \end{lstlisting}
 \end{enumerate}
