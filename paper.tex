@@ -72,7 +72,7 @@
 
 \begin{document}
 
-\title{Decoupled-Fallback: A Portable Single-Pass Scan}
+\title{Decoupled-Fallback: A Portable Single-Pass GPU Scan}
 
 \author{Thomas Smith}
 \affiliation{%
@@ -97,7 +97,7 @@
 \renewcommand{\shortauthors}{Smith et al.}
 
 \begin{abstract}
-  Scan is one of the most fundamental primitives in GPGPU computing, underpinning operations such as graph traversal and sorting. Although the state-of-the-art scan algorithm, \emph{Decoupled-Lookback}, achieves near-ideal (\emph{memcopy}) performance on NVIDIA hardware when implemented in CUDA, it relies on architectural and language-specific guarantees that no longer hold once outside of the NVIDIA ecosystem---most prominently, a forward progress guarantee (FPG). Without FPG, the algorithm becomes highly susceptible to deadlock, necessitating regression to slower approaches. We introduce \emph{Decoupled-Fallback}, a method that enables \emph{Decoupled-Lookback} to operate on hardware without FPG while avoiding deadlock, alongside other portability adaptations. On an FPG-lacking device---the Apple M1 Pro (8+2)---\emph{Decoupled-Fallback} achieves near-\emph{memcopy} speeds for inclusive prefix sum in WGPU and realizes the full theoretically expected 50\% speedup over the slower \emph{Reduce-Then-Scan} approach.
+  We present \emph{Decoupled-Fallback}, a method that enables single-pass \emph{Chained-Scans} to run on hardware without \emph{Forward-Progress Guarantees} while avoiding deadlock. Additionally, we introduce a tile state representation for \emph{Chained-Scans} that does not rely on 64-bit atomics or memory fences for correctness, along with a subgroup-size-agnostic intra-workgroup implementation. On an FPG-lacking device---Apple M1 Pro (8+2)---\emph{Decoupled-Fallback} achieves near-\emph{memcopy} speeds for inclusive prefix sum in WGPU and realizes the full theoretically expected 50\% speedup over the slower \emph{Reduce-Then-Scan} approach. We further demonstrate the resilience of \emph{Decoupled-Fallback} against \emph{unfair} schedulers by emulating blocking at rates of up to 50\%, showing that it maintains superior performance over \emph{Reduce-Then-Scan} even under extreme contention.
 \end{abstract}
 
 \begin{CCSXML}
