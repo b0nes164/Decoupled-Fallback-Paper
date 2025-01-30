@@ -72,33 +72,32 @@
 
 \begin{document}
 
-\title{The Name of the Title Is Hope}
+\title{Decoupled-Fallback: A Portable Single-Pass Scan}
 
-\author{Lars Th{\o}rv{\"a}ld}
+\author{Thomas Smith}
 \affiliation{%
-\institution{The Th{\o}rv{\"a}ld Group}
-\city{Hekla}
-\country{Iceland}}
-\email{larst@affiliation.org}
+\institution{Google}
+\country{USA}}
 
-\author{Valerie B\'eranger}
+\author{Raph Levien}
 \affiliation{%
-  \institution{Inria Paris-Rocquencourt}
-  \city{Rocquencourt}
-  \country{France}
+  \institution{Google}
+  \country{USA}
 }
 
-\author{Aparna Patel}
+\author{John D. Owens}
 \affiliation{%
-  \institution{Rajiv Gandhi University}
-  \city{Doimukh}
-  \state{Arunachal Pradesh}
-  \country{India}}
-
-\renewcommand{\shortauthors}{Trovato et al.}
+  \institution{University of California, Davis}
+  \country{USA}}
+  \additionalaffiliation{%
+  \institution{Google}
+  \country{USA}
+}
+  
+\renewcommand{\shortauthors}{Smith et al.}
 
 \begin{abstract}
-  TODO
+  Scan is one of the most fundamental primitives in GPGPU computing, underpinning operations such as graph traversal and sorting. Although the state-of-the-art scan algorithm, \emph{Decoupled-Lookback}, achieves near-ideal (\emph{memcopy}) performance on NVIDIA hardware when implemented in CUDA, it relies on architectural and language-specific guarantees that no longer hold once outside of the NVIDIA ecosystem---most prominently, a forward progress guarantee (FPG). Without FPG, the algorithm becomes highly susceptible to deadlock, necessitating regression to slower approaches. We introduce \emph{Decoupled-Fallback}, a method that enables \emph{Decoupled-Lookback} to operate on hardware without FPG while avoiding deadlock, alongside other portability adaptations. On an FPG-lacking device---the Apple M1 Pro (8+2)---\emph{Decoupled-Fallback} achieves near-\emph{memcopy} speeds for inclusive prefix sum in WGPU and realizes the full theoretically expected 50\% speedup over the slower \emph{Reduce-Then-Scan} approach.
 \end{abstract}
 
 \begin{CCSXML}
@@ -277,7 +276,7 @@ For example, consider a scan operation requiring two workgroups running on a GPU
 \subsection{Why is reliance on Forward Progress Guarantees a Portability Problem?}
 Although NVIDIA formalized FPG down to the intra-subgroup level beginning with the Volta architecture---and FPG was likely already present on at least NVIDIA's Fermi and AMD's TeraScale2 architectures~\cite{}---its absence in key segments of hardware is a critical issue for developers. Our testing shows that, at best, attempting to run \emph{Chained-Scan} without FPG results in mega-bad,\thomas{Need to gather data on the distribution of M1 Pro time on Decoupled Lookback instead of the average time. It's also unclear why the test did not trigger Metal's timeout device recovery.} and at worst, risks the aforementioned TDR and subsequent program crash.
 
-\begin{figure}[h]
+\begin{figure}
   \centering
   \includegraphics[width=\linewidth]{graphics/Figure_1.pdf}
   \caption{Execution times of \emph{Decoupled-Lookback (PLACEHOLDER DATA)}}
@@ -296,59 +295,59 @@ Levien and Naur~\cite{Raph2021} made the first attempt at implementing a \emph{D
 
 \thomas{What I want to accomplish here is to go beyond saying "Here is our method. It works great." I want to show that these are the possible avenues to attack deadlocking . . . and exhaustively demonstrate that removing mutual exclusion is the best way to do it, under our given constraints.}
 Like \emph{Scalar-Fallback}, we choose \emph{mutual exclusion} as our approach to break deadlocking. \emph{Dependency relationships} and \emph{no preemption} are immutable characteristics of scan and the GPU programming model, eliminating them as viable avenues for breaking deadlocking. While it may be possible to break \emph{circular ordering} by designing tile sizes such that workgroups are mapped one-to-one to multiprocessors, doing so portably is infeasible. Moreover, vendor guidance on progress guarantees among multiprocessors is also lacking, leaving the same risks of deadlocking but at the multiprocessor level. While eliminating \emph{resource holding}---allowing workgroups to discard work tiles when they encounter a deadlock---is theoretically possible, it is strictly worse than eliminating \emph{mutual exclusion}, as it necessitates $t$ additional movements (discard-read-read versus read).
-\begin{algorithm}[htb]
+\begin{algorithm}
   \small
   \SetAlgoLined
   \KwGlobalIn{%
-    $in[]$,
-    $out[]$,
-    $spine[]$,
-    $tileBump$,
+    $\textit{in}[]$,
+    $\textit{out}[]$,
+    $\textit{spine}[]$,
+    $\textit{tileBump}$,
   }
   \KwSharedIn{%
-    $wg\_partials[]$,
-    $wg\_fallback[]$,
-    $wg\_prev\_reduction$,
-    $wg\_broadcast$,
-    $wg\_control$,
+    $\textit{wg\_partials}[]$,
+    $\textit{wg\_fallback}[]$,
+    $\textit{wg\_prev\_reduction}$,
+    $\textit{wg\_broadcast}$,
+    $\textit{wg\_control}$,
   }
-  \KwGlobalOut{$out[]$ inclusive scan of $in[]$}
-  \KwConstants{Vectors per thread $p$}
+  \KwGlobalOut{$\textit{out}[]$ inclusive scan of $\textit{in}[]$}
+  \KwConstants{Vectors per thread $\textit{p}$}
 
-  \If{$threadid = 0$}{
-    $wg\_broadcast \gets atomicAdd(\&tileBump, 1)$\;
-    $wg\_control \gets LOCKED$\;
+  \If{$\textit{threadid} = 0$}{
+    $\textit{wg\_broadcast} \gets \textnormal{atomicAdd}(\&\textit{tileBump}, 1)$\;
+    $\textit{wg\_control} \gets \textnormal{LOCKED}$\;
   }
   \textbf{barrier()}\;
 
-  $part\_id \gets wg\_broadcast$\;
+  $\textit{part\_id} \gets \textit{wg\_broadcast}$\;
 
-  \textit{local\_vectors}: $\textnormal{array}\langle \textnormal{vec4}\langle u32\rangle, p\rangle$\;
+  \textit{local\_vectors}: $\textnormal{array}\langle \textnormal{vec4}\langle u32\rangle, \textit{p} \rangle$\;
 
-  \textbf{Load}($in$, $part\_id$, \textit{local\_vectors})\;
+  \textbf{Load}($\textit{in}$, $\textit{part\_id}$, \textit{local\_vectors})\;
   \textbf{SubgroupRake}(\textit{local\_vectors})\;
 
-  \If{$highestRankLane(threadid)$}{
-    $wg\_partials[subgroup\_id] \gets local\_vectors[final\_partial]$\;
+  \If{$\textnormal{highestRankLane}(\textit{threadid})$}{
+    $\textit{wg\_partials}[\textit{subgroup\_id}] \gets \textit{local\_vectors}[\textnormal{final\_partial}]$\;
   }
   \textbf{barrier()}\;
 
-  \textbf{WorkgroupWideScan}($wg\_partials$)\;
+  \textbf{WorkgroupWideScan}($\textit{wg\_partials}$)\;
   \textbf{barrier()}\;
 
   \tcp{Decoupled Fallback}
-  \While{$wg\_control = LOCKED$}{
-    \textbf{Lookback}($spine$, $wg\_prev\_reduction$, $wg\_control$)\;
+  \While{$\textit{wg\_control} = \textnormal{LOCKED}$}{
+    \textbf{Lookback}($\textit{spine}$, $\textit{wg\_prev\_reduction}$, $\textit{wg\_control}$)\;
     \textbf{barrier()}\;
 
-    \If{$wg\_control = LOCKED$}{
-      \textbf{FallbackReduce}($in$, $wg\_fallback$)\;
-      \textbf{FallbackInsertionAttempt}($spine$, $wg\_fallback$, $wg\_prev\_reduction$, $wg\_control$)\;
+    \If{$\textit{wg\_control} = \textnormal{LOCKED}$}{
+      \textbf{FallbackReduce}($\textit{in}$, $\textit{wg\_fallback}$)\;
+      \textbf{FallbackInsertionAttempt}($\textit{spine}$, $\textit{wg\_fallback}$, $\textit{wg\_prev\_reduction}$, $\textit{wg\_control}$)\;
       \textbf{barrier()}\;
     }
   }
 
-  \textbf{Write}($out$, $part\_id$, \textit{local\_vectors}, $wg\_partials$, $wg\_prev\_reduction$)\;
+  \textbf{Write}($\textit{out}$, $\textit{part\_id}$, \textit{local\_vectors}, $\textit{wg\_partials}$, $\textit{wg\_prev\_reduction}$)\;
 
   \caption{High-Level Scan Kernel}
 \end{algorithm}
@@ -362,41 +361,38 @@ At a high level, our algorithmn follows a five phase construction:
 \begin{enumerate}
   \item[(0)] \textbf {Initialization}: The first thread in the workgroup atomically acquires its work-tile by atomically incrementing a value in global memory.
   \item \textbf{Load Phase}: Each thread loads $p$ vectors, consuming the input in a subgroup-blocked ordering. For a subgroup size $s$ and vector size $v$, each subgroup processes a contiguous block of size $s \cdot p \cdot v$.
-  \item \textbf{Subgroup-Rake}: Each thread performs a private, serial scan across its vectors and then participates in $p$ raking subgroup scans. This allows the entire scan across the subgroup-block to be barrier-free and remain in registers. The final subgroup-block reduction is then posted to shared memory.
+  \item \textbf{Subgroup-Rake}: Each thread scans its vectors privately, then joins $p$ raking subgroup scans,
+  allowing the subgroup-block scan to remain barrier-free and in registers.The subgroup-block reduction is then posted to shared memory. For a workgroup of size $w$, subgroup-raking reduces the local spine to $\frac{w}{s}$.
   \item \textbf{Workgroup-Wide Scan}: The workgroup collectively performs a scan across the subgroup partial reductions, writing the results back to shared memory upon completion.
   \item \textbf{Decoupled-Fallback}: The first subgroup in the workgroup performs a lookback operation, engaging in fallback operations if necessary. Once completed, it posts the results to shared memory for the workgroup to consume.
   \item \textbf{Write Phase}: Each subgroup incorporates the results from the workgroup-wide scan and lookback operation to produce and write out the correct output.
 \end{enumerate}
-Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3, and 5 comprise the intra-workgroup scan, following a \emph{Scan-then-Propagate} strategy. Phase 4, \emph{Decoupled-Fallback}, is responsible for managing all inter-workgroup dependencies.
+Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3, and 5 comprise the intra-workgroup scan, following a \emph{Scan-then-Propagate} strategy. Phase 4, \emph{Decoupled-Fallback}, is responsible for managing all inter-workgroup dependencies. As our loading and writing phase are typical of scan kernels, we focus here on our portability-specific adaptations.
 
-\subsection{Intra-Workgroup Portability Adaptations}
-As our loading and writing phase are typical of scan kernels, we focus here on our portability-specific adaptations.
-\subsubsection{Subgroup-Raking}
-We desire the smallest intra-workgroup spine possible. Not only does this reduce shared memory usage, but it also directly impacts the number of workgroup barriers encountered during the workgroup-wide scan, as this number is proportional to the size of the local spine. While large subgroups are relatively insensitive to this effect, small subgroups are particularly affected (reference depth here). To address this, we perform $p$ raking iterations of subgroup Kogge-Stone scans, where the highest-ranked thread passes its output into each succeeding scan. For a workgroup of size $w$, this approach reduces the number of partial reductions that each subgroup must post from $p$ to $1$, and it decreases the size of the spine from $\frac{pw}{s}$ to $\frac{w}{s}$.
-\begin{algorithm}[htbp]
+\begin{algorithm}
   \small
   \SetAlgoLined
-  \KwSharedIn{ Array of subgroup partial reductions $x$ }
-  \KwSharedOut{ Post-scanned array $x$ }
-  \KwConstants{ Workgroup Size $W$, Subgroup Size $S$ }
+  \KwSharedIn{ Array of subgroup partial reductions $\textit{x}$ }
+  \KwSharedOut{ Post-scanned array $\textit{x}$ }
+  \KwConstants{ Workgroup Size $\textit{W}$, Subgroup Size $\textit{S}$ }
 
-  $spine\_length \gets W / S$\;
-  $alignment \gets 1 << \text{divRoundUp}(\log_2(spine\_length), \log_2(S)) \cdot \log_2(S)$\;
+  $\textit{spine\_length} \gets \textit{W} / \textit{S}$\;
+  $\textit{alignment} \gets 1 << \text{divRoundUp}(\log_2(\textit{spine\_length}), \log_2(\textit{S})) \cdot \log_2(\textit{S})$\;
 
-  $stride \gets 1$\;
-  $top\_offset \gets 0$\;
+  $\textit{stride} \gets 1$\;
+  $\textit{top\_offset} \gets 0$\;
 
-  \ForEach{$thread\_id$ \textbf{in} $W$ \textbf{in parallel}}{
-    \For{$j \gets S$ \KwTo $alignment$ \textbf{with} $j \gets j \cdot S$}{
+  \ForEach{$\textit{thread\_id}$ \textbf{in} $\textit{W}$ \textbf{in parallel}}{
+    \For{$\textit{j} \gets \textit{S}$ \KwTo $\textit{alignment}$ \textbf{with} $\textit{j} \gets \textit{j} \cdot \textit{S}$}{
       \tcp{Brent-Kung Upsweep}
 
-      $step \gets spine\_length / stride$\;
+      $\textit{step} \gets \textit{spine\_length} / \textit{stride}$\;
 
-      \If{$thread\_id < step$}{
-        $temp \gets \text{subgroupInclusiveScan}(x[thread\_id + top\_offset])$\;
-        $x[thread\_id + top\_offset] \gets temp$\;
-        \If{$\text{\normalfont highestRankLane}(thread\_id)$}{
-          $x[(thread\_id / S) + step + top\_offset] \gets temp$\;
+      \If{$\textit{thread\_id} < \textit{step}$}{
+        $\textit{temp} \gets \text{subgroupInclusiveScan}(\textit{x}[\textit{thread\_id} + \textit{top\_offset}])$\;
+        $\textit{x}[\textit{thread\_id} + \textit{top\_offset}] \gets \textit{temp}$\;
+        \If{$\text{\normalfont highestRankLane}(\textit{thread\_id})$}{
+          $\textit{x}[(\textit{thread\_id} / \textit{S}) + \textit{step} + \textit{top\_offset}] \gets \textit{temp}$\;
         }
       }
 
@@ -404,49 +400,49 @@ We desire the smallest intra-workgroup spine possible. Not only does this reduce
 
       \tcp{Fanout}
 
-      \If{$j \neq S$}{
-        $reduced\_stride \gets j / stride$\;
-        $fanout\_index \gets thread\_id + reduced\_stride$\;
+      \If{$\textit{j} \neq \textit{S}$}{
+        $\textit{reduced\_stride} \gets \textit{j} / \textit{stride}$\;
+        $\textit{fanout\_index} \gets \textit{thread\_id} + \textit{reduced\_stride}$\;
 
-        $cond1 \gets fanout\_index < spine\_length$\;
-        $cond2 \gets (fanout\_index \& (j - 1)) \geq reduced\_stride$\;
+        $\textit{cond1} \gets \textit{fanout\_index} < \textit{spine\_length}$\;
+        $\textit{cond2} \gets (\textit{fanout\_index} \& (\textit{j} - 1)) \geq \textit{reduced\_stride}$\;
 
-        \If{$cond1 \textbf{ \&\& } cond2$}{
-          $x[fanout\_index] \gets x[fanout\_index] + x[((fanout\_index / stride) + top\_offset) - 1]$\;
+        \If{$\textit{cond1} \textbf{ \&\& } \textit{cond2}$}{
+          $\textit{x}[\textit{fanout\_index}] \gets \textit{x}[\textit{fanout\_index}] + \textit{x}[((\textit{fanout\_index} / \textit{stride}) + \textit{top\_offset}) - 1]$\;
         }
       }
-      $stride \gets stride \cdot S$\;
-      $top\_offset \gets top\_offset + step$\;
+      $\textit{stride} \gets \textit{stride} \cdot \textit{S}$\;
+      $\textit{top\_offset} \gets \textit{top\_offset} + \textit{step}$\;
     }
     \textbf{barrier()}\;
   }
-  \Return{$x$}\;
-  \caption{Workgroup-Wide Scan. \john{Sorry to say that every one of those variable names need to be wrapped in \texttt{\textbackslash textit}. ``Typeset in math mode'' is not the same as ``Typeset in italics'' (see $offset$ vs.\ \textit{offset}).}}
+  \Return{$\textit{x}$}\;
+  \caption{Workgroup-Wide Scan.}
   \label{alg:example}
 \end{algorithm}
 
-\subsubsection{Workgroup-Wide Scan}
+\subsection{Workgroup-Wide Scan}
 The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{} scan network embedded with Kogge-Stone subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase is negligible due to our overall thriftiness, including the deliberate retention of vectors in registers and the efficiency of subgroup raking. Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; zero bank conflicts across all supported subgroup sizes.\footnote{Since we also require a workgroup-wide pure reduce operation, this can be achieved by omitting the fanout operation and substituting the subgroup Kogge-Stone scan with a subgroup butterfly reduction.}
 
 \subsection{Decoupled-Fallback}
-To reiterate, the goal of a lookback is twofold: to determine the reduction of all preceding work tiles and to communicate those values to succeeding tiles to accelerate their own lookback operations. Following the \emph{Decoupled-Lookback} technique, we model the spine as a finite state machine, where each work tile comprising the spine may exist in one of three states:
+To reiterate, the goal of the lookback phase is twofold: to determine the reduction of all preceding work tiles and to communicate those values to succeeding tiles to accelerate their own lookback operations. Following the \emph{Decoupled-Lookback} technique, we model the inter-workgroup spine as a finite state machine, where each work tile comprising the spine may exist in one of three states:
 \begin{itemize}
   \item \textbf{Not Ready}: The tile has not yet been processed or written to global memory.
   \item \textbf{Ready}: The tile has completed its local reduction and posted it to global memory.
   \item \textbf{Inclusive}: The tile has completed its lookback and updated its posting to reflect the inclusive reduction.
 \end{itemize}
-Each lookback is, therefore, a traversal from the \emph{Ready} state to the \emph{Inclusive} state. To illustrate this process, we present a flowchart (SEE LOOKBACK FLOWCHART).
+As the spine resides in global memory, all tiles are initialized to the \emph{Not Ready} state prior to kernel launch, with their corresponding reduction values set to the identity element of the monoid. Over the course of the lookback, each tile progresses from \emph{Not Ready} to \emph{Ready}, then to \emph{Inclusive}, and once advanced, may never revert to a prior state. Although workgroups depend on preceding tiles, they operate independently and are primarily responsible for updating their own state, only opportunistically updating other tiles' states in the event of a fallback. To illustrate this process, we present the flowchart in Figure~\ref{fig:decoupled_fallback}.
 \john{It's helpful, I think, to also explicitly say what data is stored globally as the spine (I think, for each workgroup, one data element and one state).}
+\john{Maybe a sentence that describes the state progression at a high level? e.g., ``the state of each workgroup begins at INVALID, moves to READY, then to INCLUSIVE, the state never moves backwards, each workgroup can operate independently and change its own state and also, during lookback, the state of preceding workgroups'', that sort of thing.}
 
-\subsubsection{Decoupled-Fallback}
-\thomas{Given that "lock" has an extensive history of use in computer science and this is not that kind of lock, perhaps a better choice of phrase would be better. I've decided to refer to it as a "control flag"} \john{Good idea. ``Status flag'', perhaps?}
-Prior to kernel launch, all tiles in the spine are initialized to the \emph{Not Ready} state. During partition index acquisition, we also initialize a shared memory \emph{control flag} to facilitate synchronization within the workgroup during the \emph{Decoupled-Fallback} phase. This flag governs both the initiation of fallback operations and the entry and exit of the entire phase, which begins immediately after the workgroup-wide scan over partial reductions is completed.
-\john{Maybe a sentence that describes the state progression at a high level? e.g., ``the state of each workgroup begins at INVALID, moves to READY, then to INCLUSIVE, the state never moves backwards, each workgroup can operate independently and change its own state and also, during lookback, the state of preceding workgroups'', that sort of thing. Also, we present the algorithm from the perspective of one workgroup, which at all times has a pointer to a ``current tile'' on which it is working. (Sloppily worded, sorry.)}
+ During partition index acquisition, we also initialize a shared memory \emph{control flag} to facilitate synchronization within the workgroup during the \emph{Decoupled-Fallback} phase. This flag governs both the initiation of fallback operations and the entry and exit of the entire phase, which begins immediately after the workgroup-wide scan over partial reductions is completed.
+ \john{Also, we present the algorithm from the perspective of one workgroup, which at all times has a pointer to a ``current tile'' on which it is working. (Sloppily worded, sorry.)}
 \john{I might also say something like ``in the following discussion, we assume the `add' monoid and use terms like `add' and `sum', but the algorithm works with any monoid''. That gets rid of awkward terms like ``accumulate''. I don't feel strongly about this.}
-\begin{figure}[h]
+\begin{figure}
   \centering
   \includegraphics[width=\linewidth]{graphics/FlowChart.pdf}
   \caption{Decoupled-Fallback}
+  \label{fig:decoupled_fallback}
 \end{figure}
 \begin{enumerate}
   \item[(0)] \textbf{Posting Local Reduction:} Each workgroup posts its local reduction---the result of the workgroup-wide scan over partials---to global memory and updates its tile state to \emph{Ready}. If it is the first work tile, its local reduction \emph{is} its inclusive reduction. In this case, the workgroup updates its tile state directly to \emph{Inclusive} and bypasses the lookback entirely.
@@ -486,7 +482,7 @@ Prior to kernel launch, all tiles in the spine are initialized to the \emph{Not 
         \end{itemize}
 \end{enumerate}
 
-\subsubsection{Tile State Implementation}
+\subsection{Tile State Implementation}
 Because a tile may be in three possible states, two bits are required to record its state alongside the 32 bits needed to store the tile's reduction value. Previous \emph{Chained-Scan} architectures maintained a coherent view of both by using either 64-bit atomics with bit packing or memory fences with 32-bit atomics. However, neither approach is viable for our implementation, as WebGPU lacks a memory model and does not support 64-bit atomics. Additionally, 64-bit atomics are unsupported on most mobile devices, making their future adoption impractical for our needs. Instead, we use two 32-bit values, splitting the reduction into upper and lower 16-bit segments while reserving the two most significant bits of each 32-bit value to encode the tile state.
 \begin{figure}[h!]
   \centering
@@ -503,11 +499,9 @@ We configure workgroups with a size of 256 threads, where each thread processes 
 Something about devices here.
 \subsection{Performance Comparison}
 To evaluate the performance of \emph{Decoupled-Fallback}, we compare it against two key benchmarks: \emph{Reduce-Then-Scan} (RTS) and a \emph{Memcopy} operation. RTS serves as a baseline to demonstrate the performance gains of our approach over the previous FPG-constrained technique. Memcopy is included as a point of reference, as it shares the same $2n$ global memory movement required by scan operations.
-\begin{figure}[h!]
-  \centering
-  \includegraphics[width=\linewidth]{graphics/speedup.pdf}
-  \john{\caption{This data (10 data points, which is pretty scant) is likely better presented as a table (also a better use of precious paper real estate). Also, make tables and figures float (don't do \texttt{[h!]}, just leave that blank, \LaTeX\ is good at page layout.)}}
-\end{figure}
+
+\thomas{Forgot about tables. Mega table incoming.}
+
 Since WebGPU limits device-side timestamps to compute or render passes, we implement a custom Memcopy kernel for timing purposes. Similarly, as there are no existing WebGPU implementations of RTS, we rely on our own optimized version for comparison. To ensure a competitive evaluation, our RTS implementation employs a variable-launch main kernel with a single workgroup performing a serial spine scan, as we found raking to be less performant in practice. Apart from this adjustment, the intraworkgroup implementation in RTS is identical to that used in \emph{Decoupled-Fallback}.
 
 \thomas{Performance is good}
@@ -517,7 +511,7 @@ Show the stats of each device. How many lookbacks?  How many fallbacks initiated
 
 \subsection{Simulated Blocking}
 To demonstrate the resilience of our technique under fallback rates significantly higher than those observed organically on devices, we intentionally force fallbacks by omitting the posting of work tile reductions. Starting with infrequent omissions---1 in 512 workgroups---we progressively increase the rate to near-continuous levels, reaching 1 in 2 workgroups.
-\begin{figure}[htbp]
+\begin{figure}
   \centering
   \begin{subfigure}{.9\linewidth}
     \centering

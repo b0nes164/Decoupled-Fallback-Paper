@@ -1,6 +1,6 @@
 [package]
-name = "GPUPrefixSumsWGPU"
-version = "0.1.1"
+name = "DecoupledFallback"
+version = "0.1.0"
 edition = "2021"
 
 [dependencies]

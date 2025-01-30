@@ -9,17 +9,6 @@ fn div_round_up(x: u32, y: u32) -> u32 {
     (x + y - 1) / y
 }
 
-#[derive(Debug)]
-pub enum TestType {
-    Csdl,
-    Csdldf,
-    Full,
-}
-
-fn print_usage() {
-    eprintln!("Usage: <TestType: \"csdl\"|\"csdldf\"|\"full\"> [\"record\"] [deviceName]");
-}
-
 struct GPUContext {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -108,21 +97,6 @@ impl GPUBuffers {
         misc_size: usize,
     ) -> Self {
         let buffer_size = (size * std::mem::size_of::<u32>()) as u64;
-
-        //Vectorize the size here
-        // let param_info: Vec<u32> = vec![
-        //     size as u32,
-        //     div_round_up(size as u32, 4),
-        //     work_tiles as u32,
-        // ];
-        // let params = gpu
-        //     .device
-        //     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        //         label: Some("Scan Parameters"),
-        //         contents: bytemuck::cast_slice(&param_info),
-        //         usage: wgpu::BufferUsages::UNIFORM,
-        //     });
-
         let params: wgpu::Buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Scan Parameters"),
             size: (4usize * std::mem::size_of::<u32>()) as u64,
@@ -350,7 +324,6 @@ struct Shaders {
     downsweep: ComputeShader,
     csdl: ComputeShader,
     csdldf: ComputeShader,
-    //csdldf_stats: ComputeShader,
     csdldf_emu: ComputeShader,
     csdldf_occ: ComputeShader,
     memcpy: ComputeShader,
@@ -991,6 +964,16 @@ impl Tester {
     }
 }
 
+pub enum TestType {
+    Csdl,
+    Csdldf,
+    Full,
+}
+
+fn print_usage() {
+    eprintln!("Usage: <TestType: \"csdl\"|\"csdldf\"|\"full\"> [\"record\"] [deviceName]");
+}
+
 struct Args {
     batch_size: u32,        // How many tests to run in a batch
     should_validate: bool,  // Whether to validate the results
@@ -1123,19 +1106,15 @@ fn main() {
 
     // Should Record?
     let mut should_record = false;
-    let mut csv_name = String::new();
-
-    if args.len() >= 3 {
-        if args[2] == "record" {
+    if let Some(arg) = args.get(2) {
+        if arg == "record" {
             should_record = true;
-            if args.len() == 4 {
-                csv_name = format!("{}_{}", args[3], "");
-            }
         } else {
             print_usage();
             std::process::exit(1);
         }
     }
+    let csv_name = args.get(3).map(|s| format!("{}_", s)).unwrap_or_default();
 
     pollster::block_on(run_the_runner(&test_type, should_record, &csv_name));
 }
