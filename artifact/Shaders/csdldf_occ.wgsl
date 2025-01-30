@@ -1,15 +1,27 @@
+//***************************************************************************
+// Chained Scan with Decoupled Lookback and Decoupled Fallback
+// with Fenceless Occupancy Discovery
+//
+// This version of CSDLDF collects workgroup occupancy to provide 
+// context for other scan statistics.
+// 
+// WARNING: Binding layout is recycled so some bindings
+// are unused
+//***************************************************************************
+enable subgroups;
 struct ScanParameters
 {
     size: u32,
     vec_size: u32,
     work_tiles: u32,
+    unused: u32,
 };
 
 @group(0) @binding(0)
 var<uniform> params : ScanParameters; 
 
 @group(0) @binding(1)
-var<storage, read_write> scan_in: array<vec4<u32>>;
+var<storage, read> scan_in: array<vec4<u32>>;
 
 @group(0) @binding(2)
 var<storage, read_write> scan_out: array<vec4<u32>>;
@@ -21,7 +33,7 @@ var<storage, read_write> scan_bump: atomic<u32>;
 var<storage, read_write> spine: array<array<atomic<u32>, 2>>;
 
 @group(0) @binding(5)
-var<storage, read_write> misc: array<atomic<u32>>;
+var<storage, read_write> occupancy: array<atomic<u32>>;
 
 const BLOCK_DIM = 256u;
 const SPLIT_MEMBERS = 2u;
@@ -92,7 +104,7 @@ fn main(
     //The compiler is free to change register counts, so this number
     //should only be treated as an estimate
     if(threadid.x == 0u && tile_id < params.work_tiles){
-        atomicAdd(&misc[OCC_COUNTER_INDEX], 1u);
+        atomicAdd(&occupancy[OCC_COUNTER_INDEX], 1u);
     }
 
     while(tile_id < params.work_tiles){

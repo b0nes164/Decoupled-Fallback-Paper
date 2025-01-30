@@ -1,15 +1,28 @@
+//***************************************************************************
+// Chained Scan with Decoupled Lookback and Decoupled Fallback
+// with Emulated Blocking
+//
+// This version of CSDLDF is used to collect relevant statistics during 
+// the Lookback and Fallback phases. Blocking is emulated by selectively 
+// omitting posting reductions.
+//
+// WARNING: Binding layout is recycled so some bindings
+// are unused
+//***************************************************************************
+enable subgroups;
 struct ScanParameters
 {
     size: u32,
     vec_size: u32,
     work_tiles: u32,
+    deadlock_mask: u32,
 };
 
 @group(0) @binding(0)
 var<uniform> params : ScanParameters; 
 
 @group(0) @binding(1)
-var<storage, read_write> scan_in: array<vec4<u32>>;
+var<storage, read> scan_in: array<vec4<u32>>;
 
 @group(0) @binding(2)
 var<storage, read_write> scan_out: array<vec4<u32>>;
@@ -21,7 +34,7 @@ var<storage, read_write> scan_bump: atomic<u32>;
 var<storage, read_write> spine: array<array<atomic<u32>, 2>>;
 
 @group(0) @binding(5)
-var<storage, read_write> misc: array<atomic<u32>>;
+var<storage, read_write> stats: array<atomic<u32>>;
 
 const BLOCK_DIM = 256u;
 const SPLIT_MEMBERS = 2u;
@@ -41,11 +54,6 @@ const ALL_READY = 3u;
 const MAX_SPIN_COUNT = 4u;
 const LOCKED = 1u;
 const UNLOCKED = 0u;
-
-//Due to lack of metaprogramming in WGSL,
-//we manually pass a value for this into the
-//shader compiler when we compile
-//const DEADLOCK_MASK;  
 
 const STATISTICS_INDEX_START = 1u;
 
@@ -166,7 +174,7 @@ fn main(
     workgroupBarrier();
 
     //Device broadcast
-    if(threadid.x < SPLIT_MEMBERS && (tile_id & DEADLOCK_MASK) != 0u){
+    if(threadid.x < SPLIT_MEMBERS && (tile_id & params.deadlock_mask) != 0u){
         let t = split(wg_partials[local_spine - 1u], threadid.x) | select(FLAG_READY, FLAG_INCLUSIVE, tile_id == 0u);
         atomicStore(&spine[tile_id][threadid.x], t);
     }
@@ -317,9 +325,9 @@ fn main(
     }
 
     if(threadid.x == 0u){
-        atomicAdd(&misc[STATISTICS_INDEX_START], total_spins);
-        atomicAdd(&misc[STATISTICS_INDEX_START + 1u], fallbacks_initiated);
-        atomicAdd(&misc[STATISTICS_INDEX_START + 2u], successful_fallback_insertions);
-        atomicAdd(&misc[STATISTICS_INDEX_START + 3u], lookback_length);
+        atomicAdd(&stats[STATISTICS_INDEX_START], total_spins);
+        atomicAdd(&stats[STATISTICS_INDEX_START + 1u], fallbacks_initiated);
+        atomicAdd(&stats[STATISTICS_INDEX_START + 2u], successful_fallback_insertions);
+        atomicAdd(&stats[STATISTICS_INDEX_START + 3u], lookback_length);
     }
 }

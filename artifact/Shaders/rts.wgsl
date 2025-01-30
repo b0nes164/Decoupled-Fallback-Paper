@@ -1,24 +1,36 @@
+//***************************************************************************
+// Reduce then Scan
+//
+// Also known as a "Tree Scan" or "Two-Level Scan," this approach 
+// first reduces values to intermediate results, which are then 
+// scanned and passed into a final downsweep pass.
+//
+// WARNING: Binding layout is recycled so some bindings
+// are unused
+//***************************************************************************
+enable subgroups;
 struct ScanParameters
 {
     size: u32,
     vec_size: u32,
     work_tiles: u32,
+    unused_0: u32,
 };
 
 @group(0) @binding(0)
 var<uniform> params : ScanParameters; 
 
 @group(0) @binding(1)
-var<storage, read_write> scan_in: array<vec4<u32>>;
+var<storage, read> scan_in: array<vec4<u32>>;
 
 @group(0) @binding(2)
 var<storage, read_write> scan_out: array<vec4<u32>>;
 
 @group(0) @binding(3)
-var<storage, read_write> scan_bump: u32;
+var<storage, read_write> unused_1: u32;
 
 @group(0) @binding(4)
-var<storage, read_write> reduction: array<u32>;
+var<storage, read_write> spine: array<u32>;
 
 @group(0) @binding(5)
 var<storage, read_write> misc: array<u32>;
@@ -70,7 +82,7 @@ fn reduce(
     }
     workgroupBarrier();
 
-    //Non-divergent subgroup agnostic reduction across subgroup reductions
+    //Non-divergent subgroup agnostic reduction across subgroup partial reductions
     let lane_pred = laneid == lane_count - 1u;
     let lane_log = u32(countTrailingZeros(lane_count));
     let local_spine = BLOCK_DIM >> lane_log;
@@ -92,7 +104,7 @@ fn reduce(
     }
 
     if(threadid.x == 0u){
-        reduction[wgid.x] = w_red;
+        spine[wgid.x] = w_red;
     }
 }
 
@@ -118,7 +130,7 @@ fn spine_scan(
             var i = s_offset + dev_offset;
             for(var k = 0u; k < SPINE_SPT; k += 1u){
                 if(i < params.work_tiles){
-                    t_scan[k] = reduction[i];
+                    t_scan[k] = spine[i];
                 }
                 i += lane_count;
             }
@@ -169,7 +181,7 @@ fn spine_scan(
             var i: u32 = s_offset + dev_offset;
             for(var k = 0u; k < SPINE_SPT; k += 1u){
                 if(i < params.work_tiles){
-                    reduction[i] = t_scan[k] + prev;
+                    spine[i] = t_scan[k] + prev;
                 }
                 i += lane_count;
             }
@@ -188,10 +200,10 @@ fn downsweep(
     @builtin(workgroup_id) wgid: vec3<u32>) {
     
     let sid = threadid.x / lane_count;  //Caution 1D workgoup ONLY! Ok, but technically not in HLSL spec
+    let s_offset = laneid + sid * lane_count * VEC4_SPT;
     var t_scan = array<vec4<u32>, VEC4_SPT>();
 
     {
-        let s_offset = laneid + sid * lane_count * VEC4_SPT;
         let dev_offset = wgid.x * VEC_TILE_SIZE;
         var i: u32 = s_offset + dev_offset;
 
@@ -267,8 +279,7 @@ fn downsweep(
     workgroupBarrier();
     
     {
-        let prev = select(0u, reduction[wgid.x - 1u], wgid.x != 0u) + select(0u, wg_partials[sid - 1u], sid != 0u);
-        let s_offset = laneid + sid * lane_count * VEC4_SPT;
+        let prev = select(0u, spine[wgid.x - 1u], wgid.x != 0u) + select(0u, wg_partials[sid - 1u], sid != 0u);
         let dev_offset =  wgid.x * VEC_TILE_SIZE;
         var i = s_offset + dev_offset;
 

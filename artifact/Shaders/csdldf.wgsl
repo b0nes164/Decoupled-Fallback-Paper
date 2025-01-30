@@ -1,15 +1,26 @@
+//***************************************************************************
+// Chained Scan with Decoupled Lookback and Decoupled Fallback
+//
+// CSDL but with an additional fallback routine, allowing the scan to work
+// on hardware without forward thread progress guarantees.
+//
+// WARNING: Binding layout is recycled so some bindings
+// are unused
+//***************************************************************************
+enable subgroups;
 struct ScanParameters
 {
     size: u32,
     vec_size: u32,
     work_tiles: u32,
+    unused_0: u32,
 };
 
 @group(0) @binding(0)
 var<uniform> params : ScanParameters; 
 
 @group(0) @binding(1)
-var<storage, read_write> scan_in: array<vec4<u32>>;
+var<storage, read> scan_in: array<vec4<u32>>;
 
 @group(0) @binding(2)
 var<storage, read_write> scan_out: array<vec4<u32>>;
@@ -21,7 +32,7 @@ var<storage, read_write> scan_bump: atomic<u32>;
 var<storage, read_write> spine: array<array<atomic<u32>, 2>>;
 
 @group(0) @binding(5)
-var<storage, read_write> misc: array<u32>;
+var<storage, read_write> unused_1: array<u32>;
 
 const BLOCK_DIM = 256u;
 const SPLIT_MEMBERS = 2u;
