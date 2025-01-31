@@ -188,7 +188,8 @@ fn main(
                     if(unsafeBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY) == ALL_READY) {
                         var incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                         if(incl_bal != 0u) {
-                            if(incl_bal != ALL_READY){  //Heinous
+                            //Heinous, but necessary, as testing indicates blocking might occur here
+                            if(incl_bal != ALL_READY){
                                 spin_count = 0u;
                                 while(spin_count < MAX_SPIN_COUNT){
                                     flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);

@@ -183,7 +183,8 @@ fn main(
                 if(unsafeBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY) == ALL_READY) {
                     var incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                     if(incl_bal != 0u) {
-                        //Did we find any inclusive? Alright, the rest are guaranteed to be on their way, lets just wait. 
+                        //Did we find any inclusive? Alright, the rest are guaranteed to be on their way, lets just wait.
+                        //This can also block :^) 
                         while(incl_bal != ALL_READY){
                             flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
                             incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
