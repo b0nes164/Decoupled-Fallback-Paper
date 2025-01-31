@@ -148,7 +148,6 @@
   \item \textbf{Fully saturates global memory bandwidth:} the scan should be capable of fully saturating the global memory bandwidth.
   \item \textbf{Portability:} the scan should be portable across hardware vendors and architectures.
 \end{itemize}
-\thomas{See comment in section 3 !}
 Our method retains the best aspects of the \emph{Chained-Scan} architecture, while eliminating the need for forward progress guarantees. It is designed to operate on arbitrary hardware, support arbitrary monoids, process inputs of arbitrary size, and support arbitrary 32-bit and 64-bit data types.
 \subsection{Goals}
 This work is guided by two main goals:
@@ -232,19 +231,19 @@ Breitbart~\cite{10.5555/2031978.2032029} was the first to apply more advanced in
 \subsubsection{Chained-Scan, Stream-Scan}
 First introduced by Yan et al.~\cite{10.1145/2442516.2442539} in \emph{Stream-Scan}, the key innovation of the \emph{Chained-Scan} architecture lies in its hybridization of parallel and serial strategies: achieving parallelism at the intra-workgroup level while minimizing global data movement through serial scan operations at the inter-workgroup level. Instead of using kernel launches as inter-workgroup synchronization points, \emph{Chained-Scans} launch a single kernel that assigns work tiles in a serial order to workgroups, utilizing atomics and bit-packed status flags to ensure coherent views of data. To enforce this serial ordering, work tiles are dynamically assigned using atomic increment operations, rather than arbitrary assignment based on virtualized workgroup indices. This shifts dependency resolution from explicit synchronization via barrier-like structures to implicit synchronization via access order. As a result, each element is read and written exactly once, achieving the theoretical minimum of $2n$.
 
-In any \emph{Chained-Scan}, once a workgroup computes its local reduction, it must complete two objectives: communicate its reduction to successor tiles and incorporate the reductions of all preceding tiles. In \emph{StreamScan}, this is facilitated by a \emph{propagation} phase, where each workgroup waits for its immediate predecessor to complete, ingests the predecessor's reduction, and posts the resulting \emph{inclusive} reduction for its immediate successor to consume. During this waiting period, the workgroup is continually scheduled, and the \emph{progress} of other workgroups must be guaranteed to prevent the spinning workgroup from starving its dependent predecessors of execution, which could result in deadlock.
+In any \emph{Chained-Scan}, once a workgroup computes its local reduction, it must complete two objectives: communicate its reduction to successor tiles and resolve dependencies by incorporating the reductions of all preceding tiles. In \emph{StreamScan}, these two objectives are combined into a single phase, where each workgroup waits for its immediate predecessor to complete, ingests the predecessor's reduction, and posts the resulting \emph{inclusive} reduction for its immediate successor to consume. During this waiting period, the workgroup is continually scheduled, and the \emph{progress} of other workgroups must be guaranteed to prevent the spinning workgroup from starving its dependent predecessors of execution, which could result in deadlock.
 
 While \emph{StreamScan} successfully reduces per-element device memory accesses to two, it does not consistently saturate global memory bandwidth, preventing it from achieving speed-of-light performance. This limitation arises because a workgroup in \emph{StreamScan} cannot post its reduction to global memory until it has received the result of its immediate predecessor. While this results in efficient $O(n/t)$ communication of reductions, and $O(2n+ n/t)= O(2n)$ total data movement, the sequential dependency creates a bottleneck that limits performance to the rate at which reductions propagate through device memory. Although this can be mitigated by increasing the size of the work tile, limited on-chip resources preclude scaling the tile size indefinitely. Moreover, this approach is unsuitable for a portable environment, as excessively large work tiles risk reducing occupancy on less capable hardware.
 
 \subsubsection{Chained-Scan, Decoupled-Lookback}
-Merrill and Garland~\cite{Merrill2016} introduced the \emph{Decoupled-Lookback} technique, which separates reduction propagation and dependency resolution to address the bottleneck caused by propagation latency. In this approach, each workgroup posts its local reduction to global memory and then performs a \emph{lookback}---a serial traversal backward along the spine---to compute its inclusive reduction. Work and memory accesses are constant-bounded to the workgroup occupancy $o$ by posting the inclusive reduction after the lookback. However, granting each workgroup control over its dependency resolution does not eliminate reliance on \emph{progress guarantees}, as workgroups must still spin on tiles that have yet to post their reductions, risking deadlock.
+Introduced by Merrill and Garland, the \emph{Decoupled-Lookback} technique separates the communication of reductions from dependency resolution, thus eliding bottlenecks caused by propagation latency. In this approach, each workgroup posts its local reduction to global memory and then performs a \emph{lookback}---a serial traversal backward along the spine---to compute its inclusive reduction. Work and memory accesses are constant-bounded to the workgroup occupancy $o$ by posting the inclusive reduction after the lookback. However, granting each workgroup control over its dependency resolution does not eliminate reliance on \emph{progress guarantees}, as workgroups must still spin on tiles that have yet to post their reductions, risking deadlock.
 
 Although \emph{Decoupled-Lookback} increases global memory access during the propagation phase to $O(o(n/t))$, the serial ordering of work tile processing confines spine memory accesses to a roughly $o$-width sliding window, making them highly likely to be cache-resident. As a result, the additional global memory traffic along the spine introduces a negligible latency overhead. With total global memory movement of $O(2n+o(n/t))= O(2n)$, \emph{Decoupled-Lookback} achieves full utilization of device memory bandwidth and delivers speed-of-light performance without the work tile size tuning required by \emph{Stream-Scan}.
 
 \subsection{Ideal Scan Architecture}
-The design of an ideal scan architecture must balance performance, portability, and practicality. Beyond their differences in speed, \emph{Chained-Scan} and \emph{Reduce-Then-Scan} embody two fundamentally contrasting paradigms. By eliding explicit inter-workgroup synchronization, \emph{Chained-Scan} aligns naturally with the oversubscription paradigm, delegating occupancy management to the hardware scheduler. In contrast, the raking approach inherent to \emph{Reduce-Then-Scan} mandates the fixed-launch paradigm, necessitating explicit control over occupancy and potentially synchronization.
+Beyond their differences in speed, \emph{Chained-Scan} and \emph{Reduce-Then-Scan} embody two fundamentally contrasting paradigms. By eliding explicit inter-workgroup synchronization, \emph{Chained-Scan} aligns naturally with the oversubscription paradigm, delegating occupancy management to the hardware scheduler. In contrast, the raking approach inherent to \emph{Reduce-Then-Scan} mandates the fixed-launch paradigm, necessitating explicit control over occupancy and potentially synchronization.
 
-Fixed-launch approaches demand substantial developer effort, requiring either tuning of workgroup launch sizes across target devices or occupancy discovery. Moreover, previous workgroup occupancy discovery techniques, such as the one proposed by Sorensen et al.~\cite{sorensen2016}, are infeasible to implement in WebGPU due to their reliance on memory fences---a feature not supported by the specification.\footnote{Our implementation of \emph{Reduce-Then-Scan}, which can be found in the artifact, includes a fenceless occupancy discovery method amenable to the WebGPU environment, but its description is beyond the scope of this work.}
+Fixed-launch approaches demand substantial developer effort, requiring either tuning of workgroup launch sizes across target devices or occupancy discovery. Moreover, previous workgroup occupancy discovery techniques, such as the one proposed by Sorensen et al.~\cite{sorensen2016}, are infeasible to implement in WebGPU due to their reliance on memory fences---a feature not supported by the specification.\footnote{Our implementation includes a fenceless occupancy discovery method amenable to the WebGPU environment, but its description is beyond the scope of this work.}
 
 Hardware-level considerations further underscore the limitations of fixed-launches. On GPUs where the global memory data cache is indexed by physical addresses---and therefore requires lookups in \emph{translation lookaside buffers} (TLBs)---fixed-launches can lead to performance degradation due to cache thrashing. This issue occurs when task sizes are large enough that each workgroup accesses its own unique page entry, and the device lacks sufficient TLB coverage to support the memory access patterns of all workgroups. Although this behavior typically does not manifest with simple monoids, more complex monoids with \emph{struct-of-array} memory access patterns---or applications like radix sorting, where the scattering phase of each pass results in $radixDigits \cdot o$ unique memory locations---may experience significant performance degradation.
 
@@ -290,10 +289,8 @@ Levien and Naur~\cite{Raph2021} made the first attempt at implementing a \emph{D
 \emph{ScalarFallback} suffers from two primary issues that impact its efficiency. First, the fallback reduction is performed serially by a single thread, progressing only when the workgroup engages in a waiting spin. This effectively takes $t$ spins to complete the fallback of a blocking $t$-sized tile. Moreover, because only a single thread is responsible for loading elements, the cache line associated with the loaded elements is severely underutilized, further degrading performance. Second, once the fallback is complete, the workgroup does not post its result to device memory. Consequently, every workgroup deadlocked by that tile must redundantly execute the fallback, wasting computational resources. While \emph{ScalarFallback} was able to achieve speed of light on hardware supporting FPG and executed correctly on hardware without FPG, its performance on the latter was inferior to that of \emph{Reduce-Then-Scan}.
 
 \section{Decoupled-Fallback}
-\thomas{I've broken somewhat with the outline and moved the goals and non-goals section to somewhere in the introduction. I kept finding myself trying to write around it. I think the content there is good, but it's very awkward as it ended up so deep within the paper. The placement of this section here feels more natural, and seems to mirror other papers?}
 \emph{Decoupled-Fallback} separates fallback operations from the lookback process, enhancing the \emph{Scalar-Fallback} technique with significantly improved fallback performance. As an extension of the \emph{Chained-Scan} architecture, it retains the advantages of high speed and oversubscription, aligning with our design requirements.
 
-\thomas{What I want to accomplish here is to go beyond saying "Here is our method. It works great." I want to show that these are the possible avenues to attack deadlocking . . . and exhaustively demonstrate that removing mutual exclusion is the best way to do it, under our given constraints.}
 Like \emph{Scalar-Fallback}, we choose \emph{mutual exclusion} as our approach to break deadlocking. \emph{Dependency relationships} and \emph{no preemption} are immutable characteristics of scan and the GPU programming model, eliminating them as viable avenues for breaking deadlocking. While it may be possible to break \emph{circular ordering} by designing tile sizes such that workgroups are mapped one-to-one to multiprocessors, doing so portably is infeasible. Moreover, vendor guidance on progress guarantees among multiprocessors is also lacking, leaving the same risks of deadlocking but at the multiprocessor level. While eliminating \emph{resource holding}---allowing workgroups to discard work tiles when they encounter a deadlock---is theoretically possible, it is strictly worse than eliminating \emph{mutual exclusion}, as it necessitates $t$ additional movements (discard-read-read versus read).
 \begin{algorithm}
   \small
@@ -328,7 +325,7 @@ Like \emph{Scalar-Fallback}, we choose \emph{mutual exclusion} as our approach t
   \textbf{SubgroupRake}(\textit{local\_vectors})\;
 
   \If{$\textnormal{highestRankLane}(\textit{threadid})$}{
-    $\textit{wg\_partials}[\textit{subgroup\_id}] \gets \textit{local\_vectors}[\textnormal{final\_partial}]$\;
+    $\textit{wg\_partials}[\textit{subgroup\_id}] \gets \textit{local\_vectors}[\textit{p} - 1]$\;
   }
   \textbf{barrier()}\;
 
@@ -373,7 +370,7 @@ Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3
   \small
   \SetAlgoLined
   \KwSharedIn{ Array of subgroup partial reductions $\textit{x}$ }
-  \KwSharedOut{ Post-scanned array $\textit{x}$ }
+  \KwSharedOut{ Inclusive-scanned $\textit{x}$ }
   \KwConstants{ Workgroup Size $\textit{W}$, Subgroup Size $\textit{S}$ }
 
   $\textit{spine\_length} \gets \textit{W} / \textit{S}$\;
@@ -425,19 +422,23 @@ Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3
 The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{} scan network embedded with Kogge-Stone subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase is negligible due to our overall thriftiness, including the deliberate retention of vectors in registers and the efficiency of subgroup raking. Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; zero bank conflicts across all supported subgroup sizes.\footnote{Since we also require a workgroup-wide pure reduce operation, this can be achieved by omitting the fanout operation and substituting the subgroup Kogge-Stone scan with a subgroup butterfly reduction.}
 
 \subsection{Decoupled-Fallback}
-To reiterate, the goal of the lookback phase is twofold: to determine the reduction of all preceding work tiles and to communicate those values to succeeding tiles to accelerate their own lookback operations. Following the \emph{Decoupled-Lookback} technique, we model the inter-workgroup spine as a finite state machine, where each work tile comprising the spine may exist in one of three states:
+To reiterate, the goal of the lookback is twofold: to determine the reduction of all preceding work tiles and to relay those values to succeeding tiles to accelerate their own lookback operations. Following the \emph{Decoupled-Lookback} technique, we model the inter-workgroup spine as a finite-state machine, where each work tile comprises a reduction value and a state, stored in global memory. Each tile may exist in one of three states:
 \begin{itemize}
   \item \textbf{Not Ready}: The tile has not yet been processed or written to global memory.
   \item \textbf{Ready}: The tile has completed its local reduction and posted it to global memory.
   \item \textbf{Inclusive}: The tile has completed its lookback and updated its posting to reflect the inclusive reduction.
 \end{itemize}
-As the spine resides in global memory, all tiles are initialized to the \emph{Not Ready} state prior to kernel launch, with their corresponding reduction values set to the identity element of the monoid. Over the course of the lookback, each tile progresses from \emph{Not Ready} to \emph{Ready}, then to \emph{Inclusive}, and once advanced, may never revert to a prior state. Although workgroups depend on preceding tiles, they operate independently and are primarily responsible for updating their own state, only opportunistically updating other tiles' states in the event of a fallback. To illustrate this process, we present the flowchart in Figure~\ref{fig:decoupled_fallback}.
+Each workgroup is responsible for updating its own state, only opportunistically updating other tiles' states in the event of a fallback. A tile can only transition forward---Not Ready \rightarrow Ready \rightarrow Inclusive—and once advanced, may never revert to a prior state. Before kernel launch, all tiles in the spine are initialized to \emph{Not Ready}, and their reduction values are set to $\epsilon$. Workgroups operate independently but remain dependent on preceding tiles to finalize their own inclusive reductions. As they transition through states, workgroups progressively accumulate reductions from prior tiles and, once their lookback phase is complete, post their inclusive reduction for the next tile to consume.
 \john{It's helpful, I think, to also explicitly say what data is stored globally as the spine (I think, for each workgroup, one data element and one state).}
 \john{Maybe a sentence that describes the state progression at a high level? e.g., ``the state of each workgroup begins at INVALID, moves to READY, then to INCLUSIVE, the state never moves backwards, each workgroup can operate independently and change its own state and also, during lookback, the state of preceding workgroups'', that sort of thing.}
 
- During partition index acquisition, we also initialize a shared memory \emph{control flag} to facilitate synchronization within the workgroup during the \emph{Decoupled-Fallback} phase. This flag governs both the initiation of fallback operations and the entry and exit of the entire phase, which begins immediately after the workgroup-wide scan over partial reductions is completed.
- \john{Also, we present the algorithm from the perspective of one workgroup, which at all times has a pointer to a ``current tile'' on which it is working. (Sloppily worded, sorry.)}
+To coordinate this process, each workgroup initializes a shared memory \emph{control flag} during partition index acquisition. This flag governs both the initiation of fallback operations and the entry and exit of the entire \emph{Decoupled-Fallback} phase, which begins immediately after the workgroup-wide scan over partial reductions is completed. The details of tile state encoding and atomic updates are discussed in the following section and may vary depending on the data type, so for simplicity, we describe the lookback here as being performed by a single thread.
+
+\john{Also, we present the algorithm from the perspective of one workgroup, which at all times has a pointer to a ``current tile'' on which it is working. (Sloppily worded, sorry.)}
 \john{I might also say something like ``in the following discussion, we assume the `add' monoid and use terms like `add' and `sum', but the algorithm works with any monoid''. That gets rid of awkward terms like ``accumulate''. I don't feel strongly about this.}
+\thomas{I'm going to use ``ingest'' to match the flow chart. I literally used a thesaurus to choose accumulate . . . Can still change later.}
+
+We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm from the perspective of a single workgroup:
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{graphics/FlowChart.pdf}
@@ -445,21 +446,28 @@ As the spine resides in global memory, all tiles are initialized to the \emph{No
   \label{fig:decoupled_fallback}
 \end{figure}
 \begin{enumerate}
-  \item[(0)] \textbf{Posting Local Reduction:} Each workgroup posts its local reduction---the result of the workgroup-wide scan over partials---to global memory and updates its tile state to \emph{Ready}. If it is the first work tile, its local reduction \emph{is} its inclusive reduction. In this case, the workgroup updates its tile state directly to \emph{Inclusive} and bypasses the lookback entirely.
+  \item[(0)] \textbf{Posting Local Reduction:} 
+        \begin{itemize}
+          \item Each workgroup posts its local reduction---the result of the workgroup-wide scan over partials---to global memory and updates its tile state to \emph{Ready}.
+          \item If it is the first work tile, its local reduction \emph{is} its inclusive reduction. In this case, the workgroup updates its tile state directly to \emph{Inclusive} and bypasses the lookback entirely.
+        \end{itemize}
 
   \item \textbf{Initialization:}
         \begin{itemize}
           \item The control flag, initialized to \emph{Locked}, signals that the workgroup should enter the lookback phase.
-          \item Each workgroup initializes a \john{shared workgroup-local (?)} \emph{previous reduction} variable with the identity element of the monoid to hold the accumulated reductions of preceding tiles.
-          \item The workgroup prepares to traverse the spine, starting with its immediate predecessor tile. \john{Carefully look at the way this is worded with respect to ``immediate predecessor'' (previous sentence) vs.\ ``current'' (next sentence). I think here we want to say that we set the current tile to the immediate predecessor, and then the next sentence is consistent.}
+          \item The lookback thread initializes a \emph{previous reduction} variable in registers with $\epsilon$ to hold the accumulated reductions of preceding tiles.
+          \item To traverse the spine, the lookback thread initializes a \emph{current tile} pointer to its immediate predecessor.  
         \end{itemize}
 
   \item \textbf{Lookback:}
         \begin{itemize}
-          \item The workgroup queries the state of the current tile.
-          \item If the tile is in the \emph{Ready} state, the workgroup accumulates the value and moves to \john{sets the current tile to} the preceding tile, repeating this step. \john{until reaching a tile that is not \emph{Ready}.}
-          \item If the tile is in the \emph{Inclusive} state, the workgroup accumulates the value and proceeds directly to step 4.
-          \item If the tile is in the \emph{Not Ready} state, the workgroup spins for a limited number of iterations, defined by the \emph{Maximum Spin Count}. If the spin count exceeds the \emph{Maximum Spin Count}, the workgroup signals a fallback operation \john{I don't get ``signals''. To whom are we signaling? What is signaled?} leaving the control flag \emph{Locked} and proceeds to the next step. \john{I think this is the place where decoupled-lookback fails without FPG\@. If so, say so, and why it fails. It underscores the central message of the paper, and is thus worth reiterating.}
+          \item The lookback thread queries the state of the \emph{current tile}.
+          \item If the tile is in the \emph{Ready} state, the workgroup ingests the value and sets \emph{current tile} to the preceding tile, repeating this step until reaching a tile that is \emph{Not Ready}.
+          \item If the tile is in the \emph{Inclusive} state, the workgroup ingests the value and proceeds directly to step 4.
+          \item If the tile is in the \emph{Not Ready} state, the lookback thread spins for a limited number of iterations, defined by the \emph{Maximum Spin Count}. If this count is exceeded, the thread exits the lookback loop, leaving the control flag \emph{Locked}, signaling to the workgroup that a fallback is required. To prepare for the fallback, it stores a copy of the \emph{current tile} in shared memory for the workgroup to process. Without FPG, \emph{Decoupled-Lookback} risks spinning indefinitely and deadlocking at this point.
+          
+          \john{I don't get ``signals''. To whom are we signaling? What is signaled?}
+          \john{I think this is the place where decoupled-lookback fails without FPG\@. If so, say so, and why it fails. It underscores the central message of the paper, and is thus worth reiterating.}
         \end{itemize}
 
   \item \textbf{Fallback:} \john{Start with a sentence that describes \emph{why} we've reached this phase. ``Even after waiting, we see that a previous workgroup has not completed the reduction of its tile.'', that sort of thing.}
@@ -478,13 +486,17 @@ As the spine resides in global memory, all tiles are initialized to the \emph{No
         \begin{itemize}
           \item Upon completing the lookback or fallback, the local reduction is added to the \emph{previous reduction} to compute the inclusive reduction, which is then posted to global memory, transitioning the tile state to \emph{Inclusive}.
           \item The \emph{previous reduction} is posted to workgroup shared memory for the workgroup to consume and propagate as necessary. \john{``consume and propagate'' is super non-specific. What is happening here and how is it different than the next sentence?}
-          \item The control flag is updated to \emph{Unlocked} to signal the exit of the \emph{Decoupled-Fallback} phase, allowing subsequent operations to proceed. \john{Be specific about what happens here! I'm presuming part of this item's work + the previous item's work is ``use the previous reduction as the starting point for scanning then outputting our current tile''. ``subsequent operations'' is super non-specific.} \john{In this item + the previous item, I bet there's some ordering constraints, either for correctness or for performance. For instance, I bet the highest priority is to add the previous reduction to my reduction and posting the result, since that propagation speed across tiles is probably really important for performance. Perhaps worth pointing out. Does the flag-unset have any ordering constraints in terms of correctness?}
+          \item The control flag is updated to \emph{Unlocked} to signal the exit of the \emph{Decoupled-Fallback} phase, allowing subsequent operations to proceed. 
+          
+          \john{Be specific about what happens here! I'm presuming part of this item's work + the previous item's work is ``use the previous reduction as the starting point for scanning then outputting our current tile''. ``subsequent operations'' is super non-specific.} 
+          
+          \john{In this item + the previous item, I bet there's some ordering constraints, either for correctness or for performance. For instance, I bet the highest priority is to add the previous reduction to my reduction and posting the result, since that propagation speed across tiles is probably really important for performance. Perhaps worth pointing out. Does the flag-unset have any ordering constraints in terms of correctness?}
         \end{itemize}
 \end{enumerate}
 
 \subsection{Tile State Implementation}
 Because a tile may be in three possible states, two bits are required to record its state alongside the 32 bits needed to store the tile's reduction value. Previous \emph{Chained-Scan} architectures maintained a coherent view of both by using either 64-bit atomics with bit packing or memory fences with 32-bit atomics. However, neither approach is viable for our implementation, as WebGPU lacks a memory model and does not support 64-bit atomics. Additionally, 64-bit atomics are unsupported on most mobile devices, making their future adoption impractical for our needs. Instead, we use two 32-bit values, splitting the reduction into upper and lower 16-bit segments while reserving the two most significant bits of each 32-bit value to encode the tile state.
-\begin{figure}[h!]
+\begin{figure}
   \centering
   \includegraphics[width=\linewidth]{graphics/split.pdf}
 \end{figure}
@@ -612,81 +624,6 @@ While minimal depth is preserved regardless of the subgroup size, this result ca
 We provide our artifact in the following GitHub repository:
 \thomas{Will anonymize with GithubAnonymous once we are ready.}
 Due to the aforementioned issues with WGSL transpilers, we choose Dawn as our WebGPU implementation.
-
-\subsection{Requirements}
-
-\subsubsection{Device Requirements}
-Any device supporting Dawn, with subgroup and timestamp query capabilities, and at least 384 MB of available device memory.
-
-\subsubsection{Software Requirements}
-\begin{itemize}
-  \item Git
-  \item CMake 3.10.2+ or another C++ build tool
-  \item C++17-compliant compiler
-  \item Python for fetching dependencies
-\end{itemize}
-
-\subsection{Building}
-Although native WebGPU is supported on various operating systems—most notably Windows, macOS, and Linux—this section will focus on building it in Unix-like environments for the sake of brevity, using CMake as the example build tool.
-
-\subsubsection{Building Dawn}
-\begin{enumerate}
-  \item[(0)] Dawn depends on the following packages (Ubuntu package names):
-        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
-sudo apt install libxrandr-dev
-  libxinerama-dev libxcursor-dev libxi-dev \
-  libx11-xcb-dev mesa-common-dev
-  \end{lstlisting}
-
-  \item Clone the Dawn repository:
-        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
-git clone https://dawn.googlesource.com/dawn
-RESET HEAD here to a specific commit. . . to lock in?
-  \end{lstlisting}
-
-  \item Build and install Dawn with your build tool and compiler of choice:
-        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
-cd dawn
-cmake -S . -B out/Release \
-  -DDAWN_FETCH_DEPENDENCIES=ON \
-  -DDAWN_ENABLE_INSTALL=ON \
-  -DCMAKE_BUILD_TYPE=Release
-...
-cmake --build out/Release
-...
-cmake --install out/Release \
-  --prefix install/Release
-  \end{lstlisting}
-\end{enumerate}
-
-\subsubsection{Building Artifact}
-After successfully building and installing Dawn, follow these steps to build the artifact:
-
-\begin{enumerate}
-  \item Navigate to the artifact directory:
-        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
-cd Decoupled-Fallback-Paper/artifact/Dawn
-  \end{lstlisting}
-
-  \item Set the `CMAKE\_PREFIX\_PATH` to point to your Dawn installation directory:
-        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
-export CMAKE_PREFIX_PATH=/path/to/ \
-dawn/install/Release
-  \end{lstlisting}
-
-  \item Build the artifact:
-        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
-cmake -S . -B out/Release \
-  -DCMAKE_BUILD_TYPE=Release
-  \end{lstlisting}
-
-  \item Compile the project:
-        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
-cmake --build out/Release
-  \end{lstlisting}
-\end{enumerate}
-
-
 
 \end{document}
 \endinput
