@@ -21,7 +21,7 @@ var<uniform> params : ScanParameters;
 var<storage, read_write> unused_1: array<u32>;
 
 @group(0) @binding(2)
-var<storage, read> scan_out: array<u32>;
+var<storage, read_write> scan_out: array<u32>;
 
 @group(0) @binding(3)
 var<storage, read_write> unused_2: u32;

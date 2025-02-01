@@ -20,7 +20,7 @@ struct ScanParameters
 var<uniform> params : ScanParameters; 
 
 @group(0) @binding(1)
-var<storage, read> scan_in: array<vec4<u32>>;
+var<storage, read_write> scan_in: array<vec4<u32>>;
 
 @group(0) @binding(2)
 var<storage, read_write> scan_out: array<vec4<u32>>;

@@ -18,11 +18,10 @@ struct GPUContext {
 
 impl GPUContext {
     async fn init() -> Self {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             flags: wgpu::InstanceFlags::empty(),
-            dx12_shader_compiler: wgpu::Dx12Compiler::default(),
-            gles_minor_version: wgpu::Gles3MinorVersion::default(),
+            backend_options: wgpu::BackendOptions::default(),
         });
 
         let adapter = instance
@@ -297,7 +296,9 @@ impl ComputeShader {
                     bind_group_layouts: &[&bind_group_layout],
                     push_constant_ranges: &[],
                 });
-
+        
+        let mut comp_options = wgpu::PipelineCompilationOptions::default();
+        comp_options.zero_initialize_workgroup_memory = false;
         let compute_pipeline =
             gpu.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -305,7 +306,7 @@ impl ComputeShader {
                     layout: Some(&pipeline_layout_init),
                     module,
                     entry_point: Some(entry_point),
-                    compilation_options: Default::default(),
+                    compilation_options: comp_options,
                     cache: Default::default(),
                 });
 
