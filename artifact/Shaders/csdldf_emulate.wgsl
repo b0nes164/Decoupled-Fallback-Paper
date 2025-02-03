@@ -9,7 +9,6 @@
 // WARNING: Binding layout is recycled so some bindings
 // are unused
 //***************************************************************************
-enable subgroups;
 struct ScanParameters
 {
     size: u32,
@@ -62,14 +61,10 @@ var<workgroup> wg_broadcast: u32;
 var<workgroup> wg_partials: array<u32, MAX_PARTIALS_SIZE>;
 var<workgroup> wg_fallback: array<u32, MAX_PARTIALS_SIZE>;
 
-@diagnostic(off, subgroup_uniformity)
 fn unsafeShuffle(x: u32, source: u32) -> u32 {
     return subgroupShuffle(x, source);
 }
 
-//lop off of the upper ballot bits;
-//we never need them across all subgroup sizes
-@diagnostic(off, subgroup_uniformity)
 fn unsafeBallot(pred: bool) -> u32 {
     return subgroupBallot(pred).x;  
 }

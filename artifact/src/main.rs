@@ -333,59 +333,47 @@ struct Shaders {
 
 impl Shaders {
     fn init(gpu: &GPUContext, gpu_buffers: &GPUBuffers) -> Self {
-        let init_mod;
-        let valid_mod;
-        let reduce_mod;
-        let spine_mod;
-        let downsweep_mod;
-        let csdl_mod;
-        let csdldf_mod;
-        let csdldf_emu_mod;
-        let csdldf_occ_mod;
-        let memcpy_mod;
 
-        unsafe {
-            init_mod = gpu
-                .device
-                .create_shader_module_spirv(&wgpu::include_spirv_raw!("../SPIR-V/init.main.spv"));
-            valid_mod = gpu
-                .device
-                .create_shader_module_spirv(&wgpu::include_spirv_raw!(
-                    "../SPIR-V/validate.main.spv"
-                ));
-            reduce_mod = gpu
-                .device
-                .create_shader_module_spirv(&wgpu::include_spirv_raw!("../SPIR-V/rts.reduce.spv"));
-            spine_mod = gpu
-                .device
-                .create_shader_module_spirv(&wgpu::include_spirv_raw!(
-                    "../SPIR-V/rts.spine_scan.spv"
-                ));
-            downsweep_mod = gpu
-                .device
-                .create_shader_module_spirv(&wgpu::include_spirv_raw!(
-                    "../SPIR-V/rts.downsweep.spv"
-                ));
-            csdl_mod = gpu
-                .device
-                .create_shader_module_spirv(&wgpu::include_spirv_raw!("../SPIR-V/csdl.main.spv"));
-            csdldf_mod = gpu
-                .device
-                .create_shader_module_spirv(&wgpu::include_spirv_raw!("../SPIR-V/csdldf.main.spv"));
-            csdldf_emu_mod = gpu
-                .device
-                .create_shader_module_spirv(&wgpu::include_spirv_raw!(
-                    "../SPIR-V/csdldf_emulate.main.spv"
-                ));
-            csdldf_occ_mod = gpu
-                .device
-                .create_shader_module_spirv(&wgpu::include_spirv_raw!(
-                    "../SPIR-V/csdldf_occ.main.spv"
-                ));
-            memcpy_mod = gpu
-                .device
-                .create_shader_module_spirv(&wgpu::include_spirv_raw!("../SPIR-V/memcpy.main.spv"));
-        }
+        let init_mod = gpu.device.create_shader_module(wgpu::include_wgsl!(
+            "../Shaders/init.wgsl"
+        ));
+        
+        let valid_mod = gpu.device.create_shader_module(wgpu::include_wgsl!(
+            "../Shaders/validate.wgsl"
+        ));
+        
+        let reduce_mod = gpu.device.create_shader_module(wgpu::include_wgsl!(
+            "../Shaders/rts.wgsl"
+        ));
+        
+        let spine_mod = gpu.device.create_shader_module(wgpu::include_wgsl!(
+            "../Shaders/rts.wgsl"
+        ));
+        
+        let downsweep_mod = gpu.device.create_shader_module(wgpu::include_wgsl!(
+            "../Shaders/rts.wgsl"
+        ));
+        
+        let csdl_mod = gpu.device.create_shader_module(wgpu::include_wgsl!(
+            "../Shaders/csdl.wgsl"
+        ));
+        
+        let csdldf_mod = gpu.device.create_shader_module(wgpu::include_wgsl!(
+            "../Shaders/csdldf.wgsl"
+        ));
+        
+        let csdldf_emu_mod = gpu.device.create_shader_module(wgpu::include_wgsl!(
+            "../Shaders/csdldf_emulate.wgsl"
+        ));
+        
+        let csdldf_occ_mod = gpu.device.create_shader_module(wgpu::include_wgsl!(
+            "../Shaders/csdldf_occ.wgsl"
+        ));
+        
+        let memcpy_mod = gpu.device.create_shader_module(wgpu::include_wgsl!(
+            "../Shaders/memcpy.wgsl"
+        ));
+        
 
         let init = ComputeShader::init(gpu, gpu_buffers, "main", &init_mod, "Init");
         let reduce = ComputeShader::init(gpu, gpu_buffers, "reduce", &reduce_mod, "Reduce");

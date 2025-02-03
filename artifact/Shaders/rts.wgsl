@@ -8,7 +8,6 @@
 // WARNING: Binding layout is recycled so some bindings
 // are unused
 //***************************************************************************
-enable subgroups;
 struct ScanParameters
 {
     size: u32,
