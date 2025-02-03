@@ -47,8 +47,7 @@ impl GPUContext {
                 &wgpu::DeviceDescriptor {
                     label: None,
                     required_features: wgpu::Features::TIMESTAMP_QUERY
-                        | wgpu::Features::SUBGROUP
-                        | wgpu::Features::SPIRV_SHADER_PASSTHROUGH,
+                        | wgpu::Features::SUBGROUP,
                     required_limits: wgpu::Limits::default(),
                     memory_hints: wgpu::MemoryHints::Performance,
                 },
