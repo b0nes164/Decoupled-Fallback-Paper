@@ -93,7 +93,7 @@
   \institution{Google}
   \country{USA}
 }
-  
+
 \renewcommand{\shortauthors}{Smith et al.}
 
 \begin{abstract}
@@ -426,7 +426,7 @@ To reiterate, the goal of \emph{Chained Propagation} is twofold: first, to deter
   \item \textbf{Ready}: The tile has completed its local reduction and posted it to global memory.
   \item \textbf{Inclusive}: The tile has completed its lookback and updated its posting to reflect the inclusive reduction.
 \end{itemize}
-Workgroups operate independently, each responsible for updating its own tile state but may opportunistically update preceding tiles in the event of a fallback. Tile states transition strictly forward---Not Ready \rightarrow Ready \rightarrow Inclusive---and never revert. Before kernel launch, all tiles are initialized to \emph{Not Ready} with reduction values set to $\epsilon$. State transitions dictate reduction accumulation: at \emph{Ready}, local reductions are posted; at \emph{Inclusive}, preceding values are incorporated. To coordinate this process, each workgroup initializes a shared memory \emph{control flag} during partition index acquisition. This flag governs both the initiation of fallback operations and the entry and exit of the entire \emph{Decoupled-Fallback} phase, which begins immediately after the workgroup-wide scan over partial reductions is completed. 
+Workgroups operate independently, each responsible for updating its own tile state but may opportunistically update preceding tiles in the event of a fallback. Tile states transition strictly forward---Not Ready $\rightarrow$ Ready $\rightarrow$ Inclusive---and never revert. Before kernel launch, all tiles are initialized to \emph{Not Ready} with reduction values set to $\epsilon$. State transitions dictate reduction accumulation: at \emph{Ready}, local reductions are posted; at \emph{Inclusive}, preceding values are incorporated. To coordinate this process, each workgroup initializes a shared memory \emph{control flag} during partition index acquisition. This flag governs both the initiation of fallback operations and the entry and exit of the entire \emph{Decoupled-Fallback} phase, which begins immediately after the workgroup-wide scan over partial reductions is completed.
 
 We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm from the perspective of a single workgroup. The details of tile state encoding and atomic updates are discussed in the following section and may vary depending on the data type, so for simplicity, we describe the operation as being performed by the \emph{first thread} of the workgroup:
 \begin{figure}
@@ -436,7 +436,7 @@ We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm 
   \caption{Flow Chart Representation of Decoupled Fallback}
 \end{figure}
 \begin{enumerate}
-  \item[(0)] \textbf{Posting Local Reduction:} 
+  \item[(0)] \textbf{Posting Local Reduction:}
         \begin{itemize}
           \item Each workgroup posts its local reduction---the result of the workgroup-wide scan over partials---to global memory and updates its tile state to \emph{Ready}.
           \item If it is the first work tile, its local reduction \emph{is} its inclusive reduction. In this case, the workgroup updates its tile state directly to \emph{Inclusive} and bypasses the \emph{Chained-Propagation} phase entirely.
@@ -446,7 +446,7 @@ We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm 
         \begin{itemize}
           \item The control flag, initialized to \emph{Locked}, signals that the workgroup should enter the \emph{Chained-Propagation} phase.
           \item The first thread initializes a \emph{previous reduction} variable in registers with $\epsilon$ to hold the accumulated reductions of preceding tiles.
-          \item To traverse the spine, the first thread initializes a \emph{current tile} pointer to its immediate predecessor.  
+          \item To traverse the spine, the first thread initializes a \emph{current tile} pointer to its immediate predecessor.
         \end{itemize}
 
   \item \textbf{Lookback:}
@@ -455,7 +455,7 @@ We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm 
                 \begin{itemize}
                   \item If the tile is in the \emph{Ready} state, the workgroup ingests the value and sets \emph{current tile} to the preceding tile, repeating this step until reaching a tile that is \emph{Not Ready}.
                   \item If the tile is in the \emph{Inclusive} state, the workgroup ingests the value and proceeds directly to step 4.
-                  \item If the tile is in the \emph{Not Ready} state, the first thread spins for a limited number of iterations, defined by the \emph{Maximum Spin Count}. 
+                  \item If the tile is in the \emph{Not Ready} state, the first thread spins for a limited number of iterations, defined by the \emph{Maximum Spin Count}.
                         \begin{itemize}
                             \item If this count is exceeded, it exits the lookback loop, leaving the control flag \emph{Locked} to signal to the workgroup that a fallback is required. Additionally, it copies \emph{current tile} into shared memory to broadcast the fallback location to the workgroup.
                             \item Else, it continues spinning until the tile transitions to a \emph{Ready} or \emph{Inclusive} state. Without FPG, \emph{Decoupled Lookback} risks spinning indefinitely and deadlocking at this stage.
@@ -463,7 +463,7 @@ We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm 
                 \end{itemize}
         \end{itemize}
 
-  \item \textbf{Fallback:} 
+  \item \textbf{Fallback:}
         \begin{itemize}
           \item If the blocking tile is still \emph{Not Ready} after waiting, the workgroup initiates a fallback operation.
           \item Using the tile index provided by the first thread, the full workgroup computes the reduction of the blocking tile by directly processing the corresponding elements. This process involves a \emph{workgroup-wide reduction},\footnote{See footnote NUMBER.} utilizing additional shared memory to aggregate partial subgroup results.
@@ -486,7 +486,7 @@ We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm 
           \item Finally, the first thread sets the control flag to \emph{Unlocked}, signaling the rest of the workgroup that \emph{Chained Propagation} has completed, and allowing the final write phase to begin.
         \end{itemize}
 \end{enumerate}
-          
+
 \john{In this item + the previous item, I bet there's some ordering constraints, either for correctness or for performance. For instance, I bet the highest priority is to add the previous reduction to my reduction and posting the result, since that propagation speed across tiles is probably really important for performance. Perhaps worth pointing out. Does the flag-unset have any ordering constraints in terms of correctness?}
 \thomas{Last phase may still need revision in accordance with above feedback. . . I have deliberately tried to avoid mentioning barriers to keep the section succinct.}
 
@@ -573,13 +573,13 @@ This increased sensitivity to fairness exacerbates existing issues which negativ
 
 \subsection{Availability}
 We provide our artifact in the following GitHub repository:
-\thomas{Will anonymize with GithubAnonymous once we are ready.}. 
+\thomas{Will anonymize with GithubAnonymous once we are ready.}.
 
 \subsection{API Choice}
 As rust is significantly more easy to build across devices we chose the WGPU api.
 
 \subsection{Device Choices}
-We chose a diverse range of devices to illustrate 
+We chose a diverse range of devices to illustrate
 
 \subsection{Baseline Comparisons}
 Since WebGPU limits device-side timestamps to compute or render passes, we implement a custom Memcopy kernel for timing purposes. Similarly, as there are no existing WebGPU implementations of RTS, we rely on our own optimized version for comparison. To ensure a competitive evaluation, our RTS implementation employs a variable-launch main kernel with a single workgroup performing a serial spine scan, as we found raking to be less performant in practice. Apart from this adjustment, the intraworkgroup implementation in RTS is identical to that used in \emph{Decoupled-Fallback}.
