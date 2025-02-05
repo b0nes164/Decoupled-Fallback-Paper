@@ -1,9 +1,9 @@
 //***************************************************************************
 // Chained Scan with Decoupled Lookback and Decoupled Fallback
-// with Emulated Blocking
+// with Simulated Blocking
 //
 // This version of CSDLDF is used to collect relevant statistics during 
-// the Lookback and Fallback phases. Blocking is emulated by selectively 
+// the Lookback and Fallback phases. Blocking is simulated by selectively 
 // omitting posting reductions.
 //
 // WARNING: Binding layout is recycled so some bindings
@@ -15,7 +15,7 @@ struct ScanParameters
     size: u32,
     vec_size: u32,
     work_tiles: u32,
-    deadlock_mask: u32,
+    simulate_mask: u32,
 };
 
 @group(0) @binding(0)
@@ -174,7 +174,7 @@ fn main(
     workgroupBarrier();
 
     //Device broadcast
-    if(threadid.x < SPLIT_MEMBERS && (tile_id & params.deadlock_mask) != 0u){
+    if(threadid.x < SPLIT_MEMBERS && (tile_id & params.simulate_mask) != 0u){
         let t = split(wg_partials[local_spine - 1u], threadid.x) | select(FLAG_READY, FLAG_INCLUSIVE, tile_id == 0u);
         atomicStore(&spine[tile_id][threadid.x], t);
     }
@@ -198,20 +198,12 @@ fn main(
                     if(unsafeBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY) == ALL_READY) {
                         var incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                         if(incl_bal != 0u) {
-                            //Heinous, but necessary, as testing indicates blocking might occur here
-                            if(incl_bal != ALL_READY){
-                                spin_count = 0u;
-                                while(spin_count < MAX_SPIN_COUNT){
-                                    flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
-                                    if(unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE) == ALL_READY){
-                                        break;
-                                    } else {
-                                        spin_count += 1u;
-                                    }
-                                }
-                                if(spin_count == MAX_SPIN_COUNT){
-                                    break;
-                                }
+                            //Did we find any inclusive? Alright, the rest are guaranteed to be on their way, lets just wait.
+                            //Note, this rests on the assumption that the execution width of the load == store.
+                            //If for whatever reason, this is not true, it risks deadlock without FPG.
+                            while(incl_bal != ALL_READY){
+                                flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
+                                incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                             }
                             prev_red += join(flag_payload & VALUE_MASK, threadid.x);
                             if(threadid.x < SPLIT_MEMBERS){
