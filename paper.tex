@@ -76,8 +76,8 @@
 
 \author{Thomas Smith}
 \affiliation{%
-\institution{Google}
-\country{USA}}
+  \institution{Google}
+  \country{USA}}
 
 \author{Raph Levien}
 \affiliation{%
@@ -89,7 +89,7 @@
 \affiliation{%
   \institution{University of California, Davis}
   \country{USA}}
-  \additionalaffiliation{%
+\additionalaffiliation{%
   \institution{Google}
   \country{USA}
 }
@@ -347,7 +347,7 @@ At a high level, our algorithm follows a five-phase construction:
   \item[(0)] \textbf {Initialization}: The first thread in the workgroup atomically acquires its work-tile by atomically incrementing a value in global memory.
   \item \textbf{Load Phase}: Each thread loads $p$ vectors, consuming the input in a subgroup-blocked ordering. For a subgroup size $s$ and vector size $v$, each subgroup processes a contiguous block of size $s \cdot p \cdot v$.
   \item \textbf{Subgroup-Rake}: Each thread scans its vectors privately, then joins $p$ raking Kogge-Stone~\cite{} subgroup scans,
-  allowing the subgroup-block scan to remain barrier-free and in registers. The subgroup-block reduction is then posted to shared memory. For a workgroup of size $w$, subgroup-raking reduces the size of the local spine to $w/s$.
+        allowing the subgroup-block scan to remain barrier-free and in registers. The subgroup-block reduction is then posted to shared memory. For a workgroup of size $w$, subgroup-raking reduces the size of the local spine to $w/s$.
   \item \textbf{Workgroup-Wide Scan}: The workgroup collectively performs a scan across the subgroup partial reductions, writing the results back to shared memory upon completion.
   \item \textbf{Chained Propagation, Decoupled Fallback}: The first subgroup in the workgroup performs a lookback operation to acquire the reduction result of all previous workgroups, engaging in fallback operations as necessary. Once completed, this subgroup posts the results to shared memory for the workgroup to consume.
   \item \textbf{Write Phase}: Each subgroup incorporates the results from the workgroup-wide scan and lookback operation to produce and write out the correct output.
@@ -447,8 +447,8 @@ We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm 
                   \item If the tile is in the \emph{Inclusive} state, the workgroup ingests the value and proceeds directly to step~4.
                   \item If the tile is in the \emph{Not Ready} state, the first thread spins for a limited number of iterations, defined by the \emph{Maximum Spin Count}.
                         \begin{itemize}
-                            \item If this count is exceeded, it exits the lookback loop and proceeds to step~3, leaving the control flag \emph{Locked} to signal to the workgroup that a fallback is required. Additionally, it copies \emph{current tile} into shared memory to broadcast the fallback tile identity to the workgroup.
-                            \item Otherwise, it continues spinning until the tile transitions to a \emph{Ready} or \emph{Inclusive} state. Without FPG, \emph{Decoupled Lookback} risks spinning indefinitely and deadlocking at this stage.
+                          \item If this count is exceeded, it exits the lookback loop and proceeds to step~3, leaving the control flag \emph{Locked} to signal to the workgroup that a fallback is required. Additionally, it copies \emph{current tile} into shared memory to broadcast the fallback tile identity to the workgroup.
+                          \item Otherwise, it continues spinning until the tile transitions to a \emph{Ready} or \emph{Inclusive} state. Without FPG, \emph{Decoupled Lookback} risks spinning indefinitely and deadlocking at this stage.
                         \end{itemize}
                 \end{itemize}
         \end{itemize}
@@ -463,8 +463,8 @@ We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm 
                   \item If that most recent state is \emph{Inclusive}, the fallback value computed by the workgroup is discarded, and the first thread ingests the returned value before proceeding to step 4.
                   \item Otherwise, the first thread ingests the fallback value.
                         \begin{itemize}
-                            \item If the blocking tile is the first in the spine, the workgroup has reached the start of the spine and has thus completed the \emph{Chained Propagation}. The first thread proceeds to step 4.
-                            \item Otherwise, the first thread updates \emph{current tile} to the preceding tile, returning to the lookback process in step~2.
+                          \item If the blocking tile is the first in the spine, the workgroup has reached the start of the spine and has thus completed the \emph{Chained Propagation}. The first thread proceeds to step 4.
+                          \item Otherwise, the first thread updates \emph{current tile} to the preceding tile, returning to the lookback process in step~2.
                         \end{itemize}
                 \end{itemize}
         \end{itemize}
@@ -480,7 +480,8 @@ We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm 
 \john{In this item + the previous item, I bet there's some ordering constraints, either for correctness or for performance. For instance, I bet the highest priority is to add the previous reduction to my reduction and posting the result, since that propagation speed across tiles is probably really important for performance. Perhaps worth pointing out. Does the flag-unset have any ordering constraints in terms of correctness?}
 \thomas{Last phase may still need revision in accordance with above feedback. . . I have deliberately tried to avoid mentioning barriers to keep the section succinct.}
 \john{I agree with your succinct strategy. I like that you now say reduction-propagation is the first priority, and why.}
-\thomas{No furher revisions required/OK to remove comments?}.
+\thomas{No furher revisions required/OK to remove comments?}
+\john{No further revisions required / yes, OK to remove comments.}
 
 \subsection{Tile State Implementation}
 Since workgroups must observe updates from one another, but WebGPU lacks a \emph{volatile}-like qualifier, we rely on atomics to ensure visibility and consistency across workgroups. Because a tile may be in three possible states, two bits are required to record its state alongside the bits needed to store the tile's reduction value. Previous \emph{Chained-Scan} architectures relied on 64-bit atomics and/or memory fences to ensure a consistency between state and value, but WebGPU’s lack of a memory model \john{I'm not sure I would say ``lack of a memory model''. It's not the (lack of) memory model that's the problem. It's specifically that we don't have the operations that give us the behavior that we require. If we had the right operations that did the right thing but didn't have a memory model, we'd be fine. We want to specifically call out what is missing and what that means, and do so as generically as possible (not ``we are missing this specific atomic call'' but instead ``we are missing some sort of atomic call that has the following behavior''). Above, we want to not only say that we don't have a volatile qualifier but also both what that means and why it would be specifically useful if we had it. Doing the latter two things gives valuable ammunition to WebGPU and GPU architects that want to improve the API and hardware.} and 64-bit atomic support makes both infeasible. Instead, we use two or four 32-bit values, splitting the reduction value into 16-bit segments while reserving the two most significant bits of each 32-bit value to encode the tile state. \john{I would try to add a sentence or two on why we can't do the obvious thing---having the state in one word and the reduction value in a different word---and why the split value avoids that problem. This is not obvious to the reader.}
