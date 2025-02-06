@@ -1,8 +1,8 @@
 //***************************************************************************
-// Chained Scan with Decoupled Lookback and Decoupled Fallback
+// Chained Scan with Decoupled Lookback
 //
-// CSDL but with an additional fallback routine, allowing the scan to work
-// on hardware without forward thread progress guarantees.
+// A single-pass scan ameable to oversubscription,
+// but dependent on FPG. This WILL crash without FPG!
 //
 // WARNING: Binding layout is recycled so some bindings
 // are unused
@@ -53,7 +53,6 @@ const MAX_SPIN_COUNT = 4u;
 const LOCKED = 1u;
 const UNLOCKED = 0u;
 
-var<workgroup> wg_control: u32;
 var<workgroup> wg_broadcast: u32;
 var<workgroup> wg_partials: array<u32, MAX_PARTIALS_SIZE>;
 var<workgroup> wg_fallback: array<u32, MAX_PARTIALS_SIZE>;
@@ -91,7 +90,6 @@ fn main(
     //acquire partition index, set the lock
     if(threadid.x == 0u){
         wg_broadcast = atomicAdd(&scan_bump, 1u);
-        wg_control = LOCKED;
     }
     let tile_id = workgroupUniformLoad(&wg_broadcast);
     let s_offset = laneid + sid * lane_count * VEC4_SPT;
@@ -179,122 +177,34 @@ fn main(
     if(tile_id != 0u){
         var prev_red = 0u;
         var lookback_id = tile_id - 1u;
-        var control_flag = workgroupUniformLoad(&wg_control);
-        while(control_flag == LOCKED){
-            if(threadid.x < lane_count){
-                var spin_count = 0u;
-                while(spin_count < MAX_SPIN_COUNT){
-                    var flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
-                    if(unsafeBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY) == ALL_READY) {
-                        var incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
-                        if(incl_bal != 0u) {
-                            //Heinous, but necessary, as testing indicates blocking might occur here
-                            if(incl_bal != ALL_READY){
-                                spin_count = 0u;
-                                while(spin_count < MAX_SPIN_COUNT){
-                                    flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
-                                    if(unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE) == ALL_READY){
-                                        break;
-                                    } else {
-                                        spin_count += 1u;
-                                    }
-                                }
-                                if(spin_count == MAX_SPIN_COUNT){
-                                    break;
-                                }
-                            }
-                            prev_red += join(flag_payload & VALUE_MASK, threadid.x);
-                            if(threadid.x < SPLIT_MEMBERS){
-                                let t = split(prev_red + wg_partials[local_spine - 1u], threadid.x) | FLAG_INCLUSIVE;
-                                atomicStore(&spine[tile_id][threadid.x], t);
-                            }
-                            if(threadid.x == 0u){
-                                wg_control = UNLOCKED;
-                                wg_broadcast = prev_red;
-                            }
-                            break;
-                        } else {
-                            prev_red += join(flag_payload & VALUE_MASK, threadid.x);
-                            spin_count = 0u;
-                            lookback_id -= 1u;
+        if(threadid.x < lane_count){
+            while(true) {
+                var flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
+                if(unsafeBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY) == ALL_READY) {
+                    var incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
+                    if(incl_bal != 0u) {
+                        //Did we find any inclusive? Alright, the rest are guaranteed to be on their way, lets just wait.
+                        while(incl_bal != ALL_READY){
+                            flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
+                            incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                         }
-                    } else {
-                        spin_count += 1u;
-                    }
-                }
-
-                if(threadid.x == 0 && spin_count == MAX_SPIN_COUNT) {
-                    wg_broadcast = lookback_id;
-                }
-            }
-
-            //Fallback if still locked
-            control_flag = workgroupUniformLoad(&wg_control);
-            if(control_flag == LOCKED){
-                let fallback_id = wg_broadcast;
-                {
-                    var t_red = 0u;
-                    var i = s_offset + fallback_id * VEC_TILE_SIZE;
-                    for(var k = 0u; k < VEC4_SPT; k += 1u){
-                        t_red += dot(scan_in[i], vec4<u32>(1u, 1u, 1u, 1u));
-                        i += lane_count;
-                    }
-
-                    let s_red = subgroupAdd(t_red);
-                    if(laneid == 0u){
-                        wg_fallback[sid] = s_red;
-                    }
-                }
-                workgroupBarrier();
-
-                //Non-divergent subgroup agnostic reduction across subgroup partial reductions
-                var f_red = 0u;
-                {
-                    var offset = 0u;
-                    var top_offset = 0u;
-                    let lane_pred = laneid == lane_count - 1u;
-                    for(var j = lane_count; j <= aligned_size; j <<= lane_log){
-                        let step = local_spine >> offset;
-                        let pred = threadid.x < step;
-                        f_red = subgroupAdd(select(0u, wg_fallback[threadid.x + top_offset], pred));
-                        if(pred && lane_pred){
-                            wg_fallback[sid + step + top_offset] = f_red;
-                        }
-                        workgroupBarrier();
-                        top_offset += step;
-                        offset += lane_log;
-                    }
-                }
-
-                if(threadid.x < lane_count){
-                    let f_split = split(f_red, threadid.x) | select(FLAG_READY, FLAG_INCLUSIVE, fallback_id == 0u);
-                    var f_payload = 0u;
-                    if(threadid.x < SPLIT_MEMBERS) {
-                        f_payload = atomicMax(&spine[fallback_id][threadid.x], f_split);
-                    }
-                    let incl_found = unsafeBallot((f_payload & FLAG_MASK) == FLAG_INCLUSIVE) == ALL_READY;
-                    if(incl_found){
-                        prev_red += join(f_payload & VALUE_MASK, threadid.x); 
-                    } else {
-                        prev_red += f_red;
-                    }
-
-                    if(fallback_id == 0u || incl_found){
+                        prev_red += join(flag_payload & VALUE_MASK, threadid.x);
                         if(threadid.x < SPLIT_MEMBERS){
                             let t = split(prev_red + wg_partials[local_spine - 1u], threadid.x) | FLAG_INCLUSIVE;
                             atomicStore(&spine[tile_id][threadid.x], t);
                         }
                         if(threadid.x == 0u){
-                            wg_control = UNLOCKED;
                             wg_broadcast = prev_red;
                         }
+                        break;
                     } else {
+                        prev_red += join(flag_payload & VALUE_MASK, threadid.x);
                         lookback_id -= 1u;
                     }
                 }
-                control_flag = workgroupUniformLoad(&wg_control);
             }
         }
+        workgroupBarrier();
     }
 
     {

@@ -375,7 +375,7 @@ impl Shaders {
             csdldf_emu_mod = gpu
                 .device
                 .create_shader_module_spirv(&wgpu::include_spirv_raw!(
-                    "../SPIR-V/csdldf_emulate.main.spv"
+                    "../SPIR-V/csdldf_simulate.main.spv"
                 ));
             csdldf_occ_mod = gpu
                 .device
@@ -930,7 +930,6 @@ impl Tester {
         }
 
         if args.should_get_stats {
-            println!("Estimated Occupancy: {}", self.get_occupancy());
             let avg_total_spins =
                 total_spins as f64 / self.work_tiles as f64 / args.batch_size as f64;
             let avg_fallback_init = fallbacks_initiated as f64 / args.batch_size as f64;
@@ -1048,6 +1047,11 @@ pub async fn run_the_runner(test_type: &TestType, should_record: bool, csv_name:
         TestType::Full => {
             tester.run(&test_args, 0u32, "RTS", Box::new(RtsPass)).await;
 
+            println!(
+                "\n\nEstimated Workgroup Occupancy CSDLDF: {}",
+                tester.get_occupancy()
+            );
+            
             tester
                 .run(&test_args, 0u32, "CSDLDF", Box::new(CsdldfPass))
                 .await;

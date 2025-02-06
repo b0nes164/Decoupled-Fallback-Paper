@@ -496,50 +496,73 @@ Fallbacks require a tile state representation and an atomic operation that can s
 
 \section{Evaluation}
 \subsection{Experimental Setup}
-We configure workgroups with a size of 256 threads, where each thread processes 4 vectors of size 4, resulting in 16 elements per thread and a total work tile size of 4096. We find a maximum spin count of 4 as offering good responsiveness to blocking, while minimizing false-positives fallbacks. As the size of the local spine is inversely proportional to the subgroup size, we allocate sufficient shared memory to accommodate the minimum subgroup size specified by the WebGPU standard, which is 4. Despite the additional shared memory required for conflict avoidance and fallback operations, total shared memory usage remains modest at only 1 KB. For all tests, we use an input size of $2^{25}$.
+\begin{table*}
+  \centering
+  \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l r r r r r}
+    \toprule
+    Metric & Nvidia 2080 Super & Intel HD620 & AMD 7900 XT & ARM Mali-G78 MP20 & Apple M1 Pro Max \\  
+    \midrule
+    Memcopy                  & 54.203  & 1.498   & 71.190  & 106.663 & 54.203  \\  
+    RTS                      & 35.709  & 1.060   & 62.868  & 82.302  & 35.709  \\  
+    CSDLDF                   & 53.256  & 1.487   & 95.737  & 112.430 & 53.256  \\  
+    CSDLDF/Memcopy           & 0.983   & 0.992   & 1.345   & 1.054   & 0.983   \\  
+    CSDLDF/RTS               & 1.491   & 1.402   & 1.523   & 1.366   & 1.491   \\  
+    Avg. Spins/Workgroup     & 0.418   & 0.306   & 0.133   & 1.380   & 0.418   \\  
+    Avg. Lookback/Workgroup  & 13.139  & 1.725   & 20.867  & 3.510   & 13.139  \\  
+    Fallbacks Initiated      & 88.384  & 260.364 & 10.127  & 2202.045& 88.384  \\  
+    Successful Insertions    & 1.205   & 6.084   & 1.001   & 57.875  & 1.205   \\  
+    \bottomrule
+  \end{tabular*}
+  \caption{Harmonic Means and Ratios for Various Devices, (Mali Absolute Statistics incorrect, need M1 Statistics)}
+  \label{tab:results}
+\end{table*}
 
-Something about devices here.
+We configure workgroups with a size $w = 256$ threads, where each thread processes $p = 4$ vectors of size 4, resulting in 16 elements per thread and a total work tile size $t = 4096$. We find a maximum spin count of 4 as offering good responsiveness to blocking, while minimizing false-positives fallbacks. As the size of the local spine is inversely proportional to the subgroup size, we allocate sufficient shared memory to accommodate the minimum subgroup size specified by the WebGPU standard, which is 4. Due to our overall thriftiness with shared memory, total shared memory usage remains modest at only 1 KB. We choose a diverse range of hardware vendors, with. For all tests, we use an input size of $2^{25}$. 
+
 \subsection{Performance Comparison}
 To evaluate the performance of \emph{Decoupled-Fallback}, we compare it against two key benchmarks: \emph{Reduce-Then-Scan} (RTS) and a \emph{Memcopy} operation. RTS serves as a baseline to demonstrate the performance gains of our approach over the previous FPG-constrained technique. Memcopy is included as a point of reference, as it shares the same $2n$ global memory movement required by scan operations.
-
-\thomas{Forgot about tables. Mega table incoming.}
-
-\thomas{Performance is good}
 
 \subsection{How (un)fair is fair?}
 Show the stats of each device. How many lookbacks?  How many fallbacks initiated? How many successful fallbacks?
 
 \subsection{Emulated Blocking}
 To demonstrate the resilience of our technique under fallback rates significantly higher than those observed organically on devices, we intentionally force fallbacks by omitting the posting of work tile reductions. Starting with infrequent omissions---1 in 512 workgroups---we progressively increase the rate to near-continuous levels, reaching 1 in 2 workgroups.
-\begin{figure}
+\begin{figure*}[t] % [t] forces the figure to appear at the top
   \centering
-  \begin{subfigure}{.9\linewidth}
+  % First row: two subfigures side by side
+  \begin{subfigure}[t]{0.48\linewidth}
     \centering
     \includegraphics[width=\linewidth]{graphics/fallbacksInitiated_plot.pdf}
     \caption{Fallbacks Initiated}
     \label{fig:fallbacks_initiated}
-  \end{subfigure}
-  \begin{subfigure}{.9\linewidth}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.48\linewidth}
     \centering
     \includegraphics[width=\linewidth]{graphics/totalSpins_plot.pdf}
     \caption{Total Spins}
     \label{fig:total_spins}
   \end{subfigure}
-  \begin{subfigure}{.9\linewidth}
+
+  \vspace{0.2em} % Adjust vertical spacing between rows
+
+  % Second row: two subfigures side by side
+  \begin{subfigure}[t]{0.48\linewidth}
     \centering
     \includegraphics[width=\linewidth]{graphics/lookbackLength_plot.pdf}
     \caption{Lookback Length}
     \label{fig:lookback_length}
-  \end{subfigure}
-  \begin{subfigure}{.9\linewidth}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.48\linewidth}
     \centering
     \includegraphics[width=\linewidth]{graphics/time_plot.pdf}
-    \caption{Speed vs Memcopy}
+    \caption{Throughput vs Baseline}
     \label{fig:execution_time}
   \end{subfigure}
-  \caption{Simulated Blocking\john{Text in these plots---axis labels, etc.---needs to be larger. If it's significantly smaller than body text, which it is, it's just not legible.}}
+  
+  \caption{Simulated Blocking}
   \label{fig:vertical_images}
-\end{figure}
+\end{figure*}
+
 
 In Figure~\ref{fig:fallbacks_initiated}, we measure the number of fallbacks proportional to the number of workgroups launched, and verify that we are indeed inducing fallbacks. In Figure~\ref{fig:total_spins} we measure \thomas{this should be spins per workgroup it's a better metric}. In Figure~\ref{fig:lookbackLength} we see that. Finally, in Figure~\ref{fig:execution_time}, we can see that, even when \emph{half} the workgroups are deadlocking, \emph{Decoupled-Fallback} still achieves speeds of . . .
 
@@ -564,10 +587,6 @@ This increased sensitivity to fairness exacerbates existing issues which negativ
 \appendix
 \section{Artifact}
 
-\subsection{Availability}
-We provide our artifact in the following GitHub repository:
-\thomas{Will anonymize with GithubAnonymous once we are ready.}.
-
 \subsection{API Choice}
 As rust is significantly more easy to build across devices we chose the WGPU api.
 
@@ -576,6 +595,110 @@ We chose a diverse range of devices to illustrate
 
 \subsection{Baseline Comparisons}
 Since WebGPU limits device-side timestamps to compute or render passes, we implement a custom Memcopy kernel for timing purposes. Similarly, as there are no existing WebGPU implementations of RTS, we rely on our own optimized version for comparison. To ensure a competitive evaluation, our RTS implementation employs a variable-launch main kernel with a single workgroup performing a serial spine scan, as we found raking to be less performant in practice. Apart from this adjustment, the intraworkgroup implementation in RTS is identical to that used in \emph{Decoupled-Fallback}.
+
+\subsection{Availability}
+We provide our artifact in the following GitHub repository: 
+\thomas{Will anonymize with GithubAnonymous once we are ready.} 
+We provide both Dawn and WGPU implementations for testing. However, we recommend Dawn, and only use WGPU for ease of native testing on Android.
+
+\subsection{Requirements}
+
+\subsubsection{Device Requirements}
+Any device supporting Dawn, with subgroup and timestamp query capabilities, and at least 384 MB of available device memory.
+
+\subsubsection{Software Requirements}
+\begin{itemize}
+  \item Git
+  \item CMake 3.10.2+ or another C++ build tool
+  \item C++17-compliant compiler
+  \item Python for fetching dependencies
+\end{itemize}
+
+\subsection{Building}
+Although native WebGPU is supported on various operating systems—most notably Windows, macOS, and Linux—this section will focus on building it in Unix-like environments for the sake of brevity, using CMake as the example build tool.
+
+\subsubsection{Building Dawn}
+\begin{enumerate}
+  \item[(0)] Dawn depends on the following packages (Ubuntu package names):
+  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+sudo apt install libxrandr-dev \
+  libxinerama-dev libxcursor-dev libxi-dev \
+  libx11-xcb-dev mesa-common-dev
+  \end{lstlisting}
+  
+  \item Clone the Dawn repository:
+  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+git clone https://dawn.googlesource.com/dawn
+cd dawn
+git fetch --all
+git checkout chromium/6950
+  \end{lstlisting}
+  
+  \item Build and install Dawn with your build tool and compiler of choice:
+  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+cd dawn
+cmake -S . -B out/Release \
+  -DDAWN_FETCH_DEPENDENCIES=ON \
+  -DDAWN_ENABLE_INSTALL=ON \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DDAWN_BUILD_TESTS=OFF \
+  -DDAWN_BUILD_SAMPLES=OFF \
+  -DTINT_BUILD_TESTS=OFF \
+  -DTINT_BUILD_CMD_TOOLS=OFF
+
+cmake --build out/Release \
+  --parallel <num_threads>
+
+cmake --install out/Release \
+  --prefix install/Release
+  \end{lstlisting}
+\end{enumerate}
+
+\subsubsection{Building Artifact}
+After successfully building and installing Dawn, follow these steps to build the artifact:
+
+\begin{enumerate}
+  \item Navigate to the artifact directory:
+  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+cd Decoupled-Fallback-Paper/artifact/Dawn
+  \end{lstlisting}
+  
+  \item Set the `CMAKE\_PREFIX\_PATH` to point to your Dawn installation directory:
+  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+export CMAKE_PREFIX_PATH=/path/to/dawn/ \  
+  install/Release
+  \end{lstlisting}
+  
+  \item Build the artifact:
+  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+cmake -S . -B out/Release \
+  -DCMAKE_BUILD_TYPE=Release
+  \end{lstlisting}
+  
+  \item Compile the project:
+  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+cmake --build out/Release
+  \end{lstlisting}
+\end{enumerate}
+
+\subsubsection{Running the Artifact}
+Once the artifact has been successfully built, you can run it using the following command:
+
+\begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+./out/Release/dawn <TestType> [record] [deviceName]
+\end{lstlisting}
+
+where:
+\begin{itemize}
+    \item \texttt{<TestType>} specifies the test to run. Valid options are:
+    \begin{itemize}
+        \item \texttt{csdl} – Runs the \emph{Decoupled Lookback} test. \textbf{Warning}, this \emph{will} crash without FPG. 
+        \item \texttt{csdldf} – Runs the \emph{Decoupled Fallback} test.
+        \item \texttt{full} – Runs a full set of tests, including multiple \emph{Decoupled Fallback} simulations.
+    \end{itemize}
+    \item \texttt{record} (optional) enables recording the test results to a CSV file.
+    \item \texttt{deviceName} (optional) appends the device name to recorded test results.
+\end{itemize}
 
 \end{document}
 \endinput
