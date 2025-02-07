@@ -66,6 +66,7 @@
 \usepackage{mathtools}
 \usepackage{listings}
 \usepackage{subcaption}
+\usepackage{makecell}
 \newcommand{\thomas}[1]{{\footnotesize\color{orange}[Thomas: #1]}}
 \newcommand{\john}[1]{{\footnotesize\color{cyan}[John: #1]}}
 \newcommand{\raph}[1]{{\footnotesize\color{magenta}[Raph: #1]}}
@@ -228,7 +229,7 @@ While \emph{StreamScan} successfully reduces per-element device memory accesses 
 \subsubsection{Chained-Scan, Decoupled-Lookback}
 Introduced by Merrill and Garland, the \emph{Decoupled-Lookback} technique refines \emph{Chained Propagation} by separating reduction communication from dependency resolution, mitigating bottlenecks caused by propagation latency. In this approach, each workgroup posts its local reduction to global memory and then performs a \emph{lookback}---a serial traversal backward along the spine---to compute its inclusive reduction. Work and memory accesses are constant-bounded to the workgroup occupancy $o$ by posting the inclusive reduction after the lookback. However, granting each workgroup control over its dependency resolution does not eliminate reliance on \emph{progress guarantees}, as workgroups must still spin on tiles that have yet to post their reductions, risking deadlock.
 
-Although \emph{Decoupled-Lookback} increases global memory access during the propagation phase to $O(o(n/t))$, the serial ordering of work tile processing confines spine memory accesses to a roughly $o$-width sliding window, making them highly likely to be cache-resident. As a result, the additional global memory traffic along the spine introduces a negligible latency overhead. With total global memory movement of $O(2n+o(n/t))= O(2n)$, \emph{Decoupled-Lookback} achieves full utilization of device memory bandwidth and delivers speed-of-light performance without the work tile size tuning required by \emph{Stream-Scan}.
+Although \emph{Decoupled-Lookback} increases global memory access during the propagation phase to $O(o(n/t))$, the serial ordering of work tile processing confines spine memory accesses to a roughly $o$-width sliding window, making them highly likely to be cache-resident. As a result, the additional global memory traffic along the spine introduces negligible overhead. With total global memory movement of $O(2n+o(n/t))= O(2n)$, \emph{Decoupled-Lookback} achieves full utilization of device memory bandwidth and delivers speed-of-light performance without the work tile size tuning required by \emph{Stream-Scan}.
 
 \subsection{Ideal Scan Architecture}
 \emph{Chained Scan} and \emph{Reduce then Scan} represent two contrasting paradigms in scan design: one embraces oversubscription and dynamic scheduling, while the other relies on a fixed-launch model with explicit control over occupancy. By avoiding explicit inter-workgroup synchronization, \emph{Chained-Scan} naturally aligns with the oversubscription paradigm, allowing the workgroup scheduler to dynamically manage occupancy. In contrast, \emph{Reduce-Then-Scan} employs workgroup raking, which mandates explicit occupancy control and, in some cases, inter-workgroup synchronization.
@@ -416,7 +417,7 @@ To reiterate, the goal of \emph{Chained Propagation} is twofold: first, to deter
   \item \textbf{Ready}: The tile has completed its local reduction and posted it to global memory.
   \item \textbf{Inclusive}: The tile has completed its lookback and updated its posting to reflect the inclusive reduction.
 \end{itemize}
-Workgroups operate independently; each is responsible for updating its own tile state but may also opportunistically update preceding tiles in the event of a fallback. Tile states transition in a strictly forward direction---\emph{Not Ready} $\rightarrow$ \emph{Ready} $\rightarrow$ \emph{Inclusive}---and never revert. Before kernel launch, all tiles are initialized to \emph{Not Ready} with reduction values set to $\epsilon$. State transitions imply an update of the reduction value: a transition to \emph{Ready} results in the posting of the local workgroup reduction, and to \emph{Inclusive}, the reduction of all previous workgroup reductions. To coordinate this process across the workgroup, each workgroup initializes a shared memory \emph{control flag} during partition index acquisition. This flag governs both the initiation of fallback operations and the entry and exit of the entire \emph{Decoupled-Fallback} phase, which begins immediately after the workgroup-wide scan over partial reductions is completed.
+Workgroups operate independently; each is responsible for updating its own tile state but may also opportunistically update preceding tiles in the event of a fallback. Tile states transition in a strictly forward direction---\emph{Not Ready} $\rightarrow$ \emph{Ready} $\rightarrow$ \emph{Inclusive}---and never revert. Before kernel launch, all tiles are initialized to \emph{Not Ready} with reduction values set to $\varepsilon$. State transitions imply an update of the reduction value: a transition to \emph{Ready} results in the posting of the local workgroup reduction, and to \emph{Inclusive}, the reduction of all previous workgroup reductions. To coordinate this process across the workgroup, each workgroup initializes a shared memory \emph{control flag} during partition index acquisition. This flag governs both the initiation of fallback operations and the entry and exit of the entire \emph{Decoupled-Fallback} phase, which begins immediately after the workgroup-wide scan over partial reductions is completed.
 
 We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm from the perspective of a single workgroup. The details of tile state encoding and atomic updates are discussed in the following section and may vary depending on the data type, so for simplicity, we describe the operation as being performed by the \emph{first thread} of the workgroup:
 \begin{figure}
@@ -435,7 +436,7 @@ We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm 
   \item \textbf{Initialization:}
         \begin{itemize}
           \item The control flag, initialized to \emph{Locked}, signals that the workgroup should enter the \emph{Chained-Propagation} phase.
-          \item The first thread initializes a \emph{previous reduction} variable in registers with $\epsilon$ to hold the accumulated reductions of preceding tiles.
+          \item The first thread initializes a \emph{previous reduction} variable in registers with $\varepsilon$ to hold the accumulated reductions of preceding tiles.
           \item The first thread initializes a \emph{current tile} pointer to its immediate predecessor, with which it begins to traverse backwards through the spine.
         \end{itemize}
 
@@ -477,12 +478,6 @@ We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm 
         \end{itemize}
 \end{enumerate}
 
-\john{In this item + the previous item, I bet there's some ordering constraints, either for correctness or for performance. For instance, I bet the highest priority is to add the previous reduction to my reduction and posting the result, since that propagation speed across tiles is probably really important for performance. Perhaps worth pointing out. Does the flag-unset have any ordering constraints in terms of correctness?}
-\thomas{Last phase may still need revision in accordance with above feedback. . . I have deliberately tried to avoid mentioning barriers to keep the section succinct.}
-\john{I agree with your succinct strategy. I like that you now say reduction-propagation is the first priority, and why.}
-\thomas{No furher revisions required/OK to remove comments?}
-\john{No further revisions required / yes, OK to remove comments.}
-
 \subsection{Tile State Implementation}
 Since workgroups must observe updates from one another, but WebGPU lacks a \emph{volatile}-like qualifier, we rely on atomics to ensure visibility and consistency across workgroups. Because a tile may be in three possible states, two bits are required to record its state alongside the bits needed to store the tile's reduction value. Previous \emph{Chained-Scan} architectures relied on 64-bit atomics and/or memory fences to ensure a consistency between state and value, but WebGPU’s lack of a memory model \john{I'm not sure I would say ``lack of a memory model''. It's not the (lack of) memory model that's the problem. It's specifically that we don't have the operations that give us the behavior that we require. If we had the right operations that did the right thing but didn't have a memory model, we'd be fine. We want to specifically call out what is missing and what that means, and do so as generically as possible (not ``we are missing this specific atomic call'' but instead ``we are missing some sort of atomic call that has the following behavior''). Above, we want to not only say that we don't have a volatile qualifier but also both what that means and why it would be specifically useful if we had it. Doing the latter two things gives valuable ammunition to WebGPU and GPU architects that want to improve the API and hardware.} and 64-bit atomic support makes both infeasible. Instead, we use two or four 32-bit values, splitting the reduction value into 16-bit segments while reserving the two most significant bits of each 32-bit value to encode the tile state. \john{I would try to add a sentence or two on why we can't do the obvious thing---having the state in one word and the reduction value in a different word---and why the split value avoids that problem. This is not obvious to the reader.}
 \begin{figure}[h!]
@@ -496,40 +491,58 @@ Fallbacks require a tile state representation and an atomic operation that can s
 
 \section{Evaluation}
 \subsection{Experimental Setup}
+We configure workgroups with a size $w = 256$ threads, where each thread processes $p = 4$ vectors of size 4, resulting in 16 elements per thread and a total work tile size of $t = 4096$. Through testing, we find a maximum spin count of 4 to effectively balance responsiveness to blocking while minimizing false-positive fallbacks. As the size of the local spine is inversely proportional to the subgroup size, we allocate sufficient shared memory to accommodate the WebGPU standard's minimum subgroup size of 4. Due to our overall thriftiness with shared memory, total usage remains modest at only $\sim$1 KB. For all tests, we use an input size of $2^{25}$ and an inclusive prefix sum. Our test hardware, listed POSITIONAL-RELATION, spans a wide range of FPG and performance capabilities. We empirically find that the Google Chrome native implementation of WebGPU (Dawn) provides the best performance and use it for all testing, except on the Arm-Mali GPU, which requires Android native, necessitating the use of WGPU.\footnote{To keep the perforamance as close to Dawn as possible, we translate our WGSL code with Dawn's Tint transpiler, and provide the raw SPIR-V to WGPU.}
+\begin{table}[t]
+  \centering
+  \small
+  \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}} l l c r r}
+    \toprule
+    Vendor & Device Name & FPG & Occupancy & Subgroup Size \\  
+    \midrule
+    Intel  & HD Graphics 620       & \textbf{Yes} & 9   & 8 - 32  \\  
+    ARM    & Mali-G78 MP20          & \textbf{Yes} & 40  & 16  \\  
+    Apple  & M1 Pro Max             & \textbf{No}  & 64  & 32  \\  
+    NVIDIA & GeForce RTX 2080 Super & \textbf{Yes} & 192 & 32  \\  
+    AMD    & Radeon RX 7900 XT      & \textbf{Yes} & 420 & 32 - 64  \\  
+    \bottomrule
+  \end{tabular*}
+  \caption{Hardware Specifications of Testing Devices}
+  \label{tab:hardware}
+\end{table}
+
+\subsection{Performance Comparison}
+To evaluate the performance of \emph{Decoupled Fallback} (\emph{CSDLDF}), we compare it against two key benchmarks: \emph{Memcopy}\textdagger{~\ref{sec:memcopy}} and \emph{Reduce then Scan}\textdagger{~\ref{sec:rts}} (\emph{RTS}). \emph{RTS} serves as a baseline to demonstrate the performance gains of our approach over the previous FPG-constrained technique. \emph{Memcopy} is included as a point of reference, as it shares the same $2n$ global memory movement as \emph{Decoupled Fallback}, without any compute overhead and thus is guaranteed to be memory bandwidth bound.
+
 \begin{table*}
   \centering
   \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l r r r r r}
     \toprule
-    Metric & Nvidia 2080 Super & Intel HD620 & AMD 7900 XT & ARM Mali-G78 MP20 & Apple M1 Pro Max \\  
+    Metric & Intel HD620 & ARM Mali-G78 MP20 & Apple M1 Pro Max & Nvidia 2080 Super & AMD 7900 XT \\  
     \midrule
-    Memcopy                  & 54.203  & 1.498   & 71.190  & 106.663 & 54.203  \\  
-    RTS                      & 35.709  & 1.060   & 62.868  & 82.302  & 35.709  \\  
-    CSDLDF                   & 53.256  & 1.487   & 95.737  & 112.430 & 53.256  \\  
-    CSDLDF/Memcopy           & 0.983   & 0.992   & 1.345   & 1.054   & 0.983   \\  
-    CSDLDF/RTS               & 1.491   & 1.402   & 1.523   & 1.366   & 1.491   \\  
-    Avg. Spins/Workgroup     & 0.418   & 0.306   & 0.133   & 1.380   & 0.418   \\  
-    Avg. Lookback/Workgroup  & 13.139  & 1.725   & 20.867  & 3.510   & 13.139  \\  
-    Fallbacks Initiated      & 88.384  & 260.364 & 10.127  & 2202.045& 88.384  \\  
-    Successful Insertions    & 1.205   & 6.084   & 1.001   & 57.875  & 1.205   \\  
+    H-Mean \emph{Memcopy} (32-bit ele/sec)  & 1.498e9   & 106.663e9 & 54.203e9  & 54.203e9  & 71.190e9  \\
+    H-Mean \emph{CSDLDF} (32-bit ele/sec)   & 1.487e9   & 112.430e9 & 53.256e9  & 53.256e9  & 95.737e9  \\  
+    H-Mean \emph{RTS} (32-bit ele/sec)      & 1.060e9   & 82.302e9  & 35.709e9  & 35.709e9  & 62.868e9  \\  
+    \emph{CSDLDF}/\emph{Memcopy} (\%)       & 99.2\%    & 105.4\%   & 98.3\%    & 98.3\%    & 134.5\%   \\  
+    \emph{CSDLDF}/\emph{RTS} (\%)          & 140.2\%   & 136.6\%   & 149.1\%   & 149.1\%   & 152.3\%   \\  
+    Avg Spins per Wg    & 0.306    & 1.380    & 0.418    & 0.418    & 0.133    \\  
+    Avg Lookback Length per Wg  & 1.725    & 3.510    & 13.139   & 13.139   & 20.867   \\  
+    Avg Total Fallbacks Initiated      & 260.364   & 2202.045  & 88.384   & 88.384   & 10.127   \\  
+    Avg Total Successful Insertions    & 6.084     & 57.875    & 1.205    & 1.205    & 1.001    \\
     \bottomrule
   \end{tabular*}
-  \caption{Harmonic Means and Ratios for Various Devices, (Mali Absolute Statistics incorrect, need M1 Statistics)}
+  \caption{MALI ABSOLUTE SPEED WRONG!, \emph{Decoupled Fallback} performance, 32-bit Inclusive Prefix Sum, Input Size $\mathbf{2^{25}}$}
   \label{tab:results}
 \end{table*}
 
-We configure workgroups with a size $w = 256$ threads, where each thread processes $p = 4$ vectors of size 4, resulting in 16 elements per thread and a total work tile size $t = 4096$. We find a maximum spin count of 4 as offering good responsiveness to blocking, while minimizing false-positives fallbacks. As the size of the local spine is inversely proportional to the subgroup size, we allocate sufficient shared memory to accommodate the minimum subgroup size specified by the WebGPU standard, which is 4. Due to our overall thriftiness with shared memory, total shared memory usage remains modest at only 1 KB. We choose a diverse range of hardware vendors, with. For all tests, we use an input size of $2^{25}$. 
-
-\subsection{Performance Comparison}
-To evaluate the performance of \emph{Decoupled-Fallback}, we compare it against two key benchmarks: \emph{Reduce-Then-Scan} (RTS) and a \emph{Memcopy} operation. RTS serves as a baseline to demonstrate the performance gains of our approach over the previous FPG-constrained technique. Memcopy is included as a point of reference, as it shares the same $2n$ global memory movement required by scan operations.
+As shown in Table~\ref{tab:results}, with the exception of the ARM Mali, \emph{CSDLDF} achieves at least a $\sim$40\% speedup over \emph{RTS} across all tested devices. Since \emph{Memcopy} is purely memory bandwidth bound, \emph{CSDLDF} should ideally match its throughput. This holds across most devices, except for the AMD 7900 XT, where \emph{CSDLDF} slightly outperforms \emph{Memcopy}, suggesting improved memory structuring due to compute operations. On the ARM Mali, \emph{CSDLDF} appears to underperform, achieving only a 36\% speedup instead of the expected 50\%. However, as its performance is nearly identical to \emph{Memcopy}, this indicates that the implementation is memory bandwidth bound, limiting further gains.
 
 \subsection{How (un)fair is fair?}
 Show the stats of each device. How many lookbacks?  How many fallbacks initiated? How many successful fallbacks?
 
-\subsection{Emulated Blocking}
+\subsection{Simulated Blocking}
 To demonstrate the resilience of our technique under fallback rates significantly higher than those observed organically on devices, we intentionally force fallbacks by omitting the posting of work tile reductions. Starting with infrequent omissions---1 in 512 workgroups---we progressively increase the rate to near-continuous levels, reaching 1 in 2 workgroups.
-\begin{figure*}[t] % [t] forces the figure to appear at the top
+\begin{figure*}[t]
   \centering
-  % First row: two subfigures side by side
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
     \includegraphics[width=\linewidth]{graphics/fallbacksInitiated_plot.pdf}
@@ -543,9 +556,8 @@ To demonstrate the resilience of our technique under fallback rates significantl
     \label{fig:total_spins}
   \end{subfigure}
 
-  \vspace{0.2em} % Adjust vertical spacing between rows
+  \vspace{0.2em}
 
-  % Second row: two subfigures side by side
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
     \includegraphics[width=\linewidth]{graphics/lookbackLength_plot.pdf}
@@ -563,8 +575,7 @@ To demonstrate the resilience of our technique under fallback rates significantl
   \label{fig:vertical_images}
 \end{figure*}
 
-
-In Figure~\ref{fig:fallbacks_initiated}, we measure the number of fallbacks proportional to the number of workgroups launched, and verify that we are indeed inducing fallbacks. In Figure~\ref{fig:total_spins} we measure \thomas{this should be spins per workgroup it's a better metric}. In Figure~\ref{fig:lookbackLength} we see that. Finally, in Figure~\ref{fig:execution_time}, we can see that, even when \emph{half} the workgroups are deadlocking, \emph{Decoupled-Fallback} still achieves speeds of . . .
+In Figure~\ref{fig:fallbacks_initiated}, we measure the number of fallbacks proportional to the number of workgroups launched, and verify that we are indeed inducing fallbacks. In Figure~\ref{fig:total_spins} we measure \thomas{this should be spins per workgroup it's a better metric}. In Figure~\ref{fig:lookback_length} we see that. Finally, in Figure~\ref{fig:execution_time}, we can see that, even when \emph{half} the workgroups are deadlocking, \emph{Decoupled-Fallback} still achieves speeds of . . .
 
 \section{Discussion}
 
@@ -580,31 +591,48 @@ This increased sensitivity to fairness exacerbates existing issues which negativ
 \begin{acks}
 \end{acks}
 
-\bibliographystyle{ACM-Reference-Format}
-\bibliography{bib}
-
-\clearpage
 \appendix
 \section{Artifact}
+\subsection{Baseline Comparisons: \emph{Memcopy}}
+\label{sec:memcopy}
+\begin{table}[h!]
+  \small
+  \centering
+  \begin{tabular}{l r r}
+    \toprule
+    Device & \makecell{Memory \\ Bandwidth \\ (GB/s)} & \makecell{Expected \\ Throughput \\ (32-bit ele/sec)} \\  
+    \midrule
+    Intel HD620 (Single-/Dual-Channel) & 17.1 / 34.1  & 2.13e9 / 4.26e9 \\  
+    ARM Mali-G78 MP20 / Pixel 6a (Tensor) & 51.2  & 6.40e9 \\  
+    Apple M1 Pro Max   & 200  & 25.0e9 \\  
+    Nvidia 2080 Super  & 448  & 56.0e9 \\  
+    AMD 7900 XT        & 800  & 100.0e9 \\  
+    \bottomrule
+  \end{tabular}
+  \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second)}
+  \label{tab:memory_bandwidth}
+\end{table}
+Although all backend APIs support \emph{timestamp queries inside encoders}, Apple GPUs do not, so we are forced to implement our own \emph{Memcopy} kernel to measure memory bandwidth, as opposed to simply timing an API's copy buffer operation. It is well known that \emph{observed} peak memory bandwidth, tends to diverge from vendor-listed peak bandwidth, so for completeness we list these figures above. We make a number of observations:
+\begin{itemize}
+  \item \textbf{Intel HD620:} As our HD620 laptop is only equipped with a single memory DIMM, its peak bandwidth is limited to the lower bound, 2.13e9 ele/sec. Thus, our observed bandwidth of 1.498e9 is reasonable.
+  \item \textbf{ARM Mali-G78 MP20 / Pixel 6a (Tensor):} The observed throughput is significantly lower than expected, despite a vendor-listed bandwidth of 6.40e9 ele/sec. The cause of this discrepancy remains unclear, but we note other developers have observed similar speeds.
+  \item \textbf{Apple M1 Pro Max:} Observed throughput matches expectations.
+  \item \textbf{Nvidia 2080 Super:} Observed throughput matches expectations.
+  \item \textbf{AMD 7900 XT:} Our above result, where \emph{CSDLDF} was observed to be faster than \emph{Memcopy}, is likely due to compute latency counterintuitively improving memory access patterns, leading to reduced paging. Furthermore, we see that our \emph{CSDLDF} throughput is within spec and reasonable.
+\end{itemize}
 
-\subsection{API Choice}
-As rust is significantly more easy to build across devices we chose the WGPU api.
-
-\subsection{Device Choices}
-We chose a diverse range of devices to illustrate
-
-\subsection{Baseline Comparisons}
-Since WebGPU limits device-side timestamps to compute or render passes, we implement a custom Memcopy kernel for timing purposes. Similarly, as there are no existing WebGPU implementations of RTS, we rely on our own optimized version for comparison. To ensure a competitive evaluation, our RTS implementation employs a variable-launch main kernel with a single workgroup performing a serial spine scan, as we found raking to be less performant in practice. Apart from this adjustment, the intraworkgroup implementation in RTS is identical to that used in \emph{Decoupled-Fallback}.
+\subsection{Baseline Comparisons: \emph{Reduce then Scan}}
+\label{sec:rts}
+As we desire the most competitve baseline possible, our \emph{RTS} kernels employ the same intra-workgroup scan strategy and tuning parameters as \emph{CSDLDF}. Initially, we adopted Merrill and Grimshaw's~\cite{Merrill2009} workgroup raking approach for inter-workgroup processing. However, empirical testing revealed that raking was consistently outperformed—by up to $\sim$15\% on lower-end devices—by a simpler approach that processes the spine serially with a single workgroup. Furthermore, our \emph{RTS} performance closely aligns with the theoretically expected $O(3n)$ global memory movement.
 
 \subsection{Availability}
 We provide our artifact in the following GitHub repository: 
 \thomas{Will anonymize with GithubAnonymous once we are ready.} 
-We provide both Dawn and WGPU implementations for testing. However, we recommend Dawn, and only use WGPU for ease of native testing on Android.
 
 \subsection{Requirements}
 
 \subsubsection{Device Requirements}
-Any device supporting Dawn, with subgroup and timestamp query capabilities, and at least 384 MB of available device memory.
+Any device supporting Dawn, with subgroup and timestamp query capabilities, and at least 384 MB of available device memory. Requires at least $\sim$2GB of disk memory to build Dawn.
 
 \subsubsection{Software Requirements}
 \begin{itemize}
@@ -699,6 +727,9 @@ where:
     \item \texttt{record} (optional) enables recording the test results to a CSV file.
     \item \texttt{deviceName} (optional) appends the device name to recorded test results.
 \end{itemize}
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{bib}
 
 \end{document}
 \endinput

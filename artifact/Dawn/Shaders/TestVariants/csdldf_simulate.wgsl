@@ -174,7 +174,7 @@ fn main(
     workgroupBarrier();
 
     //Device broadcast
-    if(threadid.x < SPLIT_MEMBERS && (tile_id & params.simulate_mask) != 0u){
+    if(threadid.x < SPLIT_MEMBERS && ((tile_id + 1u) & params.simulate_mask) != 0u){
         let t = split(wg_partials[local_spine - 1u], threadid.x) | select(FLAG_READY, FLAG_INCLUSIVE, tile_id == 0u);
         atomicStore(&spine[tile_id][threadid.x], t);
     }
