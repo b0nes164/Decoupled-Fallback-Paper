@@ -194,500 +194,606 @@
 @string{VanNostrand = "Van Nostrand" }
 @string{WHFreeman = "W. H. Freeman and Co." }
 %Entries
-@article{10.1145/7902.7903,
-  title      = {Data parallel algorithms},
-  author     = {Hillis, W. Daniel and Steele, Guy L.},
-  year       = 1986,
-  month      = dec,
-  journal    = {Commun. ACM},
-  publisher  = {Association for Computing Machinery},
-  address    = {New York, NY, USA},
-  volume     = 29,
-  number     = 12,
-  pages      = {1170--1183},
-  doi        = {10.1145/7902.7903},
-  issn       = {0001-0782},
-  url        = {https://doi.org/10.1145/7902.7903},
-  issue_date = {Dec. 1986},
-  abstract   = {Parallel computers with tens of thousands of processors are typically programmed in a data parallel style, as opposed to the control parallel style used in multiprocessing. The success of data parallel algorithms—even on problems that at first glance seem inherently serial—suggests that this style of programming has much wider applicability than was previously thought.},
-  numpages   = 14
-}
-@article{5009159,
-  title    = {A Parallel Algorithm for the Efficient Solution of a General Class of Recurrence Equations},
-  author   = {Kogge, Peter M. and Stone, Harold S.},
-  year     = 1973,
-  journal  = {IEEE Transactions on Computers},
-  volume   = {C-22},
-  number   = 8,
-  pages    = {786--793},
-  doi      = {10.1109/TC.1973.5009159},
-  keywords = {Program processors;Equations;Computers;Mathematical model;Parallel algorithms;Data mining;Polynomials;Parallel algorithms;parallel computation;recurrence problems;recursive doubling}
-}
-@article{1675982,
-  title    = {A Regular Layout for Parallel Adders},
-  author   = {Richard P. Brent and Hsiang-Tsung Kung},
-  year     = 1982,
-  journal  = {IEEE Transactions on Computers},
-  volume   = {C-31},
-  number   = 3,
-  pages    = {260--264},
-  doi      = {10.1109/TC.1982.1675982},
-  keywords = {Addition;area-time complexity;carry lookahead;circuit design;combinational logic;models of computation;parallel addition;parallel polynomial evaluation;prefix computation;VLSI}
-}
-@article{5219822,
-  title    = {Conditional-Sum Addition Logic},
-  author   = {Sklansky, J.},
-  year     = 1960,
-  journal  = {IRE Transactions on Electronic Computers},
-  volume   = {EC-9},
-  number   = 2,
-  pages    = {226--231},
-  doi      = {10.1109/TEC.1960.5219822},
-  keywords = {Adders;Bibliographies;Delay effects;Propagation delay;Digital arithmetic;Logic design;Petroleum;Switching circuits;Distributed computing;Senior members}
-}
-@techreport{Merrill2016,
-  title       = {Single-pass Parallel Prefix Scan with Decoupled Look-back},
-  author      = {Duane Merrill and Michael Garland},
-  year        = 2016,
-  month       = mar,
-  number      = {NVR-2016-002},
-  url         = {https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back},
-  institution = {NVIDIA Corporation}
-}
-@manual{NvidiaCudaGuide,
-  title       = {CUDA C Programming Guide},
-  author      = {{NVIDIA Corporation}},
-  year        = 2024,
-  url         = {https://docs.nvidia.com/cuda/cuda-c-programming-guide/},
-  note        = {Accessed: 2024-12-06},
-  institution = {NVIDIA Corporation}
-}
-@techreport{NvidiaVoltaWhitepaper,
-  title       = {NVIDIA Volta Architecture Whitepaper},
-  author      = {{NVIDIA Corporation}},
-  year        = 2017,
-  url         = {https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf},
-  institution = {NVIDIA Corporation}
-}
-@misc{adinets2022onesweepfastersignificantdigit,
-  title         = {Onesweep: A Faster Least Significant Digit Radix Sort for {GPU}s},
-  author        = {Andy Adinets and Duane Merrill},
-  year          = 2022,
-  url           = {https://arxiv.org/abs/2206.01784},
-  eprint        = {2206.01784},
-  archiveprefix = {arXiv},
-  primaryclass  = {cs.DC}
-}
-@inproceedings{10.1145/3035918.3064043,
-  title     = {A Memory Bandwidth-Efficient Hybrid Radix Sort on {GPU}s},
-  author    = {Stehle, Elias and Jacobsen, Hans-Arno},
-  year      = 2017,
-  booktitle = {Proceedings of the 2017 ACM International Conference on Management of Data},
-  location  = {Chicago, Illinois, USA},
-  publisher = {Association for Computing Machinery},
-  address   = {New York, NY, USA},
-  series    = {SIGMOD '17},
-  pages     = {417--432},
-  doi       = {10.1145/3035918.3064043},
-  isbn      = 9781450341974,
-  url       = {https://doi.org/10.1145/3035918.3064043},
-  numpages  = 16,
-  keywords  = {gpu, heterogeneous computing, parallel sorting, radix sort, sorting}
-}
-@incollection{Sengupta2011,
-  author    = {Shubhabrata Sengupta and Mark Harris and Michael
-               Garland and John D. Owens},
-  editor    = {Jakub Kurzak and David A. Bader and Jack Dongarra},
-  booktitle = {Scientific Computing with Multicore and
-               Accelerators},
-  title     = {Efficient Parallel Scan Algorithms for many-core
-               {GPU}s},
-  chapter   = 19,
-  publisher = {Taylor \& Francis},
-  year      = 2011,
-  series    = {Chapman \& Hall/CRC Computational Science},
-  month     = jan,
-  pages     = {413--442},
-  doi       = {10.1201/b10376-29}
-}
-@inproceedings{10.5555/1280094.1280110,
-  title     = {Scan Primitives for {GPU} Computing},
-  author    = {Shubhabrata Sengupta and Mark Harris and Yao Zhang
-               and John D. Owens},
-  booktitle = {Proceedings of the 22nd ACM SIGGRAPH/EUROGRAPHICS
-               Symposium on Graphics Hardware},
-  series    = {GH '07},
-  year      = 2007,
-  month     = aug,
-  pages     = {97--106},
-  doi       = {10.2312/EGGH/EGGH07/097-106}
-}
-@incollection{GPUGems3,
-  author    = {Mark Harris and Shubhabrata Sengupta and John D.
-               Owens},
-  editor    = {Hubert Nguyen},
-  booktitle = {GPU Gems 3},
-  title     = {Parallel Prefix Sum (Scan) with {CUDA}},
-  chapter   = 39,
-  publisher = {Addison Wesley},
-  month     = aug,
-  year      = 2007,
-  pages     = {851--876}
-}
 @inproceedings{10.1007/978-3-540-27764-4_11,
-  title     = {An Algebra of Scans},
-  author    = {Hinze, Ralf},
-  year      = 2004,
-  booktitle = {Mathematics of Program Construction},
-  publisher = {Springer Berlin Heidelberg},
-  address   = {Berlin, Heidelberg},
-  pages     = {186--210},
-  isbn      = {978-3-540-27764-4},
-  editor    = {Kozen, Dexter},
-  doi       = {10.1007/978-3-540-27764-4_11}
-}
-@article{5219801,
-  title    = {A One-Microsecond Adder Using One-Megacycle Circuitry},
-  author   = {Weinberger, A. and Smith, J. L.},
-  year     = 1956,
-  journal  = {IRE Transactions on Electronic Computers},
-  volume   = {EC-5},
-  number   = 2,
-  pages    = {65--73},
-  doi      = {10.1109/TEC.1956.5219801},
-  keywords = {Adders;NIST;Pulse amplifiers;Clocks;Arithmetic;Light emitting diodes;Pulse transformers;Acoustic pulses;Pulse circuits;Circuit analysis computing}
-}
-@techreport{Merrill2009,
-  title        = {Parallel Scan for Stream Architectures},
-  author       = {Merrill, Duane and Grimshaw, Andrew},
-  year         = 2009,
-  doi          = {https://doi.org/10.18130/V3XN3C},
-  note         = {Accessed: 2024-12-09},
-  howpublished = {\url{https://libraopen.lib.virginia.edu/public_view/kd17cs85f}},
-  institution  = {University of Virginia}
-}
-@inproceedings{10.5555/110382.110597,
-  title     = {Scan primitives for vector computers},
-  author    = {Chatterjee, Siddhartha and Blelloch, Guy E. and Zagha, Marco},
-  year      = 1990,
-  location  = {New York, New York, USA},
-  publisher = {IEEE Computer Society Press},
-  address   = {Washington, DC, USA},
-  series    = {Supercomputing '90},
-  pages     = {666--675},
-  isbn      = {0897914120},
-  numpages  = 10
-}
-@inproceedings{10.1145/1375527.1375559,
-  title      = {Fast scan algorithms on graphics processors},
-  author     = {Dotsenko, Yuri and Govindaraju, Naga K. and Sloan, Peter-Pike and Boyd, Charles and Manferdelli, John},
-  year       = 2008,
-  booktitle  = {Proceedings of the 22nd Annual International Conference on Supercomputing},
-  location   = {Island of Kos, Greece},
-  publisher_ = {Association for Computing Machinery},
-  address_   = {New York, NY, USA},
-  series     = {ICS '08},
-  pages      = {205--213},
-  doi        = {10.1145/1375527.1375559},
-  isbn       = 9781605581583,
-  url        = {https://doi.org/10.1145/1375527.1375559},
-  numpages   = 9,
-  keywords   = {GPGPU, GPU, HPC, all-prefix-sum, many-core, parallel algorithm, scan, segmented scan}
-}
-@inproceedings{10.1145/2442516.2442539,
-  title      = {{StreamScan}: fast scan algorithms for {GPU}s without global barrier synchronization},
-  author     = {Yan, Shengen and Long, Guoping and Zhang, Yunquan},
-  year       = 2013,
-  booktitle  = {Proceedings of the 18th ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming},
-  location   = {Shenzhen, China},
-  publisher_ = {Association for Computing Machinery},
-  address_   = {New York, NY, USA},
-  series     = {PPoPP '13},
-  pages      = {229--238},
-  doi        = {10.1145/2442516.2442539},
-  isbn       = 9781450319225,
-  url        = {https://doi.org/10.1145/2442516.2442539},
-  numpages   = 10,
-  keywords   = {scan, prefix-sum, parallel algorithms, opencl, gpu, cuda}
-}
-
-@article{sorensen2016,
-  author     = {Sorensen, Tyler and Donaldson, Alastair F. and Batty, Mark and Gopalakrishnan, Ganesh and Rakamari\'{c}, Zvonimir},
-  title      = {Portable inter-workgroup barrier synchronisation for GPUs},
-  year       = {2016},
-  issue_date = {October 2016},
-  publisher  = {Association for Computing Machinery},
-  address_   = {New York, NY, USA},
-  volume     = {51},
-  number     = {10},
-  issn       = {0362-1340},
-  url        = {https://doi.org/10.1145/3022671.2984032},
-  doi        = {10.1145/3022671.2984032},
-  journal    = {SIGPLAN Not.},
-  month      = oct,
-  pages      = {39--58},
-  numpages   = {20},
-  keywords   = {GPU, OpenCL, barrier, portability, synchronisation}
-}
-
-@inproceedings{sorensen2018,
-  title     = {{GPU} Schedulers: How Fair Is Fair Enough?},
-  author    = {Sorensen, Tyler and Evrard, Hugues and Donaldson, Alastair F.},
-  year      = 2018,
-  booktitle = {29th International Conference on Concurrency Theory (CONCUR 2018)},
-  publisher = {Schloss Dagstuhl -- Leibniz-Zentrum f{\"u}r Informatik},
-  address   = {Dagstuhl, Germany},
-  series    = {Leibniz International Proceedings in Informatics (LIPIcs)},
-  volume    = 118,
-  pages     = {23:1--23:17},
-  doi       = {10.4230/LIPIcs.CONCUR.2018.23},
-  isbn      = {978-3-95977-087-3},
-  issn      = {1868-8969},
-  url       = {https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.CONCUR.2018.23},
-  editor    = {Schewe, Sven and Zhang, Lijun},
-  urn       = {urn:nbn:de:0030-drops-95619},
-  annote    = {Keywords: GPU scheduling, Blocking synchronisation, GPU semantics}
-}
-@article{sorensen2021,
-  title      = {Specifying and testing {GPU} workgroup progress models},
-  author     = {Sorensen, Tyler and Salvador, Lucas F. and Raval, Harmit and Evrard, Hugues and Wickerson, John and Martonosi, Margaret and Donaldson, Alastair F.},
-  year       = 2021,
-  month      = oct,
-  journal    = {Proc. ACM Program. Lang.},
-  publisher  = {Association for Computing Machinery},
-  address_   = {New York, NY, USA},
-  volume     = 5,
-  number     = {OOPSLA},
-  doi        = {10.1145/3485508},
-  url        = {https://doi.org/10.1145/3485508},
-  issue_date = {October 2021},
-  articleno  = 131,
-  numpages   = 30,
-  keywords   = {GPU, liveness, model checking, semantics, test case synthesis}
-}
-@inproceedings{5470477,
-  author    = {Xiao, Shucai and Feng, Wu-chun},
-  booktitle = {2010 IEEE International Symposium on Parallel & Distributed Processing (IPDPS)},
-  title     = {Inter-block {GPU} communication via fast barrier synchronization},
-  year      = {2010},
-  volume    = {},
-  number    = {},
-  pages     = {1--12},
-  keywords  = {Synchronization;Central Processing Unit;Kernel;Dynamic programming;Fast Fourier transforms;Computer architecture;Computer science;Graphics processing unit;Clocks},
-  doi       = {10.1109/IPDPS.2010.5470477}
-}
-@article{4523358,
-  author   = {Lindholm, Erik and Nickolls, John and Oberman, Stuart and Montrym, John},
-  journal  = {IEEE Micro},
-  title    = {NVIDIA Tesla: A Unified Graphics and Computing Architecture},
-  year     = {2008},
-  volume   = {28},
-  number   = {2},
-  pages    = {39--55},
-  keywords = {Graphics;Computer architecture;Parallel processing;Pipelines;Concurrent computing;Load management;Multicore processing;Parallel programming;Portable computers;Workstations;Hot Chips 19;GPU;parallel processor;SIMT;SIMD;unified graphics and parallel computing architecture;graphics processing unit;cooperative thread array;Tesla},
-  doi      = {10.1109/MM.2008.31}
-}
-@book{10.5555/1098666,
-  author    = {Iverson, Kenneth E.},
-  title     = {A programming language},
-  year      = {1962},
-  isbn      = {0471430145},
-  publisher = {John Wiley \& Sons, Inc.},
-  address   = {USA}
-}
-@inproceedings{1292373,
-  author    = {Harris, David},
-  booktitle = {Thirty-Seventh Asilomar Conference on Signals, Systems \& Computers},
-  title     = {A Taxonomy of Parallel Prefix Networks},
-  year      = {2003},
-  month     = nov,
-  volume    = {2},
-  number    = {},
-  pages     = {2213--2217},
-  keywords  = {Taxonomy;Delay;Adders;Wiring;Logic;Circuits;Educational institutions;Sun;Laboratories;Computer architecture},
-  doi       = {10.1109/ACSSC.2003.1292373}
-}
-@inproceedings{6158699,
-  author    = {Han, Tackdon and Carlson, David A.},
-  booktitle = {1987 IEEE 8th Symposium on Computer Arithmetic (ARITH)},
-  title     = {Fast area-efficient {VLSI} adders},
-  year      = {1987},
-  volume    = {},
-  number    = {},
-  pages     = {49--56},
-  keywords  = {Lead;Delay;Water;CMOS integrated circuits;Integrated circuit interconnections;CMOS technology},
-  doi       = {10.1109/ARITH.1987.6158699}
-}
-@article{10.1145/322217.322232,
-  title      = {Parallel Prefix Computation},
-  author     = {Ladner, Richard E. and Fischer, Michael J.},
-  year       = 1980,
-  month      = oct,
-  journal    = {J. ACM},
-  publisher  = {Association for Computing Machinery},
-  address_   = {New York, NY, USA},
-  volume     = 27,
-  number     = 4,
-  pages      = {831--838},
-  doi        = {10.1145/322217.322232},
-  issn       = {0004-5411},
-  url        = {https://doi.org/10.1145/322217.322232},
-  issue_date = {Oct. 1980},
-  numpages   = 8
-}
-@inproceedings{930129,
-  author    = {Knowles, S.},
-  booktitle = {Proceedings 15th IEEE Symposium on Computer Arithmetic. ARITH-15 2001},
-  title     = {A family of adders},
-  year      = {2001},
-  volume    = {},
-  number    = {},
-  pages     = {277--281},
-  keywords  = {CMOS technology;Wiring;Costs;Construction industry;CMOS process;Very large scale integration;Arithmetic;Fasteners;Binary trees},
-  doi       = {10.1109/ARITH.2001.930129}
-}
-@inproceedings{10.1145/800061.808738,
-  author    = {Fich, Faith E.},
-  title     = {New bounds for parallel prefix circuits},
-  year      = {1983},
-  isbn      = {0897910990},
-  publisher = {Association for Computing Machinery},
-  address_  = {New York, NY, USA},
-  url       = {https://doi.org/10.1145/800061.808738},
-  doi       = {10.1145/800061.808738},
-  booktitle = {Proceedings of the Fifteenth Annual ACM Symposium on Theory of Computing},
-  pages     = {100--109},
-  numpages  = {10},
-  series    = {STOC '83}
-}
-
-@article{Karp:1987:ERP,
-  author    = {Karp, Richard M. and Rabin, Michael O.},
-  title     = {Efficient randomized pattern-matching algorithms},
-  journal   = {IBM Journal of Research and Development},
-  year      = 1987,
-  volume    = 31,
-  number    = 2,
-  month     = mar,
-  pages     = {249--260},
-  issn      = {0018-8646},
-  doi       = {10.1147/rd.312.0249},
-  publisher = {IBM}
-}
-
-@misc{Raph2021,
-  author = {Raph Levien and Elias Naur},
-  title  = {Portable Prefix Sum for GPUs},
-  year   = {2021},
-  url    = {https://raphlinus.github.io/gpu/2021/11/17/prefix-sum-portable.html},
-  note   = {Accessed: 2025-01-02}
+  title =	 {An Algebra of Scans},
+  author =	 {Hinze, Ralf},
+  year =	 2004,
+  booktitle =	 {Mathematics of Program Construction},
+  publisher =	 {Springer Berlin Heidelberg},
+  address =	 {Berlin, Heidelberg},
+  pages =	 {186--210},
+  isbn =	 {978-3-540-27764-4},
+  editor =	 {Kozen, Dexter},
+  doi =		 {10.1007/978-3-540-27764-4_11}
 }
 
 @article{10.1016/0196-67748690003-9,
-  author     = {Snir, Marc},
-  title      = {Depth-size trade-offs for parallel prefix computation},
-  year       = {1986},
-  issue_date = {June 1986},
-  publisher  = {Academic Press, Inc.},
-  address    = {USA},
-  volume     = {7},
-  number     = {2},
-  issn       = {0196-6774},
-  url        = {https://doi.org/10.1016/0196-6774(86)90003-9},
-  doi        = {10.1016/0196-6774(86)90003-9},
-  journal    = {J. Algorithms},
-  month      = jun,
-  pages      = {185--201},
-  numpages   = {17}
-}
-
-@inproceedings{10.1145/2983990.2984032,
-  author    = {Sorensen, Tyler and Donaldson, Alastair F. and Batty, Mark and Gopalakrishnan, Ganesh and Rakamari\'{c}, Zvonimir},
-  title     = {Portable inter-workgroup barrier synchronisation for GPUs},
-  year      = {2016},
-  isbn      = {9781450344449},
-  publisher = {Association for Computing Machinery},
-  address_  = {New York, NY, USA},
-  url       = {https://doi.org/10.1145/2983990.2984032},
-  doi       = {10.1145/2983990.2984032},
-  booktitle = {Proceedings of the 2016 ACM SIGPLAN International Conference on Object-Oriented Programming, Systems, Languages, and Applications},
-  pages     = {39--58},
-  numpages  = {20},
-  keywords  = {GPU, OpenCL, barrier, portability, synchronisation},
-  location  = {Amsterdam, Netherlands},
-  series    = {OOPSLA 2016}
-}
-
-@article{10.1145/356586.356588,
-  author     = {Coffman, E. G. and Elphick, M. and Shoshani, A.},
-  title      = {System Deadlocks},
-  year       = {1971},
-  issue_date = {June 1971},
-  publisher  = {Association for Computing Machinery},
-  address_   = {New York, NY, USA},
-  volume     = {3},
-  number     = {2},
-  issn       = {0360-0300},
-  url        = {https://doi.org/10.1145/356586.356588},
-  doi        = {10.1145/356586.356588},
-  abstract   = {A problem of increasing importance in the design of large multiprogramming systems is the, so-called, deadlock or deadly-embrace problem. In this article we survey the work that has been done on the treatment of deadlocks from both the theoretical and practical points of view.},
-  journal    = {ACM Comput. Surv.},
-  month      = jun,
-  pages      = {67--78},
-  numpages   = {12}
+  author =	 {Snir, Marc},
+  title =	 {Depth-size trade-offs for parallel prefix
+                  computation},
+  year =	 1986,
+  issue_date =	 {June 1986},
+  publisher =	 {Academic Press, Inc.},
+  address =	 {USA},
+  volume =	 7,
+  number =	 2,
+  issn =	 {0196-6774},
+  url =		 {https://doi.org/10.1016/0196-6774(86)90003-9},
+  doi =		 {10.1016/0196-6774(86)90003-9},
+  journal =	 {J. Algorithms},
+  month =	 jun,
+  pages =	 {185--201},
+  numpages =	 17
 }
 
 @article{10.1109/TPDS.2012.336,
-  author     = {Ha, Sang-Won and Han, Tack-Don},
-  title      = {A Scalable Work-Efficient and Depth-Optimal Parallel Scan for the {GPGPU} Environment},
-  year       = {2013},
-  issue_date = {December 2013},
-  journal    = {IEEE Transactions on Parallel and Distributed Systems},
-  publisher  = {IEEE Press},
-  volume     = {24},
-  number     = {12},
-  issn       = {1045-9219},
-  url        = {https://doi.org/10.1109/TPDS.2012.336},
-  doi        = {10.1109/TPDS.2012.336},
-  month      = dec,
-  pages      = {2324--2333},
-  numpages   = {10},
-  keywords   = {GPGPU, Han-Carlson adder, Parallel scan, high-performance computing, prefix sum}
+  author =	 {Ha, Sang-Won and Han, Tack-Don},
+  title =	 {A Scalable Work-Efficient and Depth-Optimal Parallel
+                  Scan for the {GPGPU} Environment},
+  year =	 2013,
+  issue_date =	 {December 2013},
+  journal =	 {IEEE Transactions on Parallel and Distributed
+                  Systems},
+  publisher =	 {IEEE Press},
+  volume =	 24,
+  number =	 12,
+  issn =	 {1045-9219},
+  url =		 {https://doi.org/10.1109/TPDS.2012.336},
+  doi =		 {10.1109/TPDS.2012.336},
+  month =	 dec,
+  pages =	 {2324--2333},
+  numpages =	 10,
+  keywords =	 {GPGPU, Han-Carlson adder, Parallel scan,
+                  high-performance computing, prefix sum}
+}
+
+@inproceedings{10.1145/1375527.1375559,
+  title =	 {Fast scan algorithms on graphics processors},
+  author =	 {Dotsenko, Yuri and Govindaraju, Naga K. and Sloan,
+                  Peter-Pike and Boyd, Charles and Manferdelli, John},
+  year =	 2008,
+  booktitle =	 {Proceedings of the 22nd Annual International
+                  Conference on Supercomputing},
+  location =	 {Island of Kos, Greece},
+  publisher_ =	 {Association for Computing Machinery},
+  address_ =	 {New York, NY, USA},
+  series =	 {ICS '08},
+  pages =	 {205--213},
+  doi =		 {10.1145/1375527.1375559},
+  isbn =	 9781605581583,
+  url =		 {https://doi.org/10.1145/1375527.1375559},
+  numpages =	 9,
+  keywords =	 {GPGPU, GPU, HPC, all-prefix-sum, many-core, parallel
+                  algorithm, scan, segmented scan}
+}
+
+@inproceedings{10.1145/2442516.2442539,
+  title =	 {{StreamScan}: fast scan algorithms for {GPU}s
+                  without global barrier synchronization},
+  author =	 {Yan, Shengen and Long, Guoping and Zhang, Yunquan},
+  year =	 2013,
+  booktitle =	 {Proceedings of the 18th ACM SIGPLAN Symposium on
+                  Principles and Practice of Parallel Programming},
+  location =	 {Shenzhen, China},
+  publisher_ =	 {Association for Computing Machinery},
+  address_ =	 {New York, NY, USA},
+  series =	 {PPoPP '13},
+  pages =	 {229--238},
+  doi =		 {10.1145/2442516.2442539},
+  isbn =	 9781450319225,
+  url =		 {https://doi.org/10.1145/2442516.2442539},
+  numpages =	 10,
+  keywords =	 {scan, prefix-sum, parallel algorithms, opencl, gpu,
+                  cuda}
+}
+
+@inproceedings{10.1145/2983990.2984032,
+  author =	 {Sorensen, Tyler and Donaldson, Alastair F. and
+                  Batty, Mark and Gopalakrishnan, Ganesh and
+                  Rakamari\'{c}, Zvonimir},
+  title =	 {Portable inter-workgroup barrier synchronisation for
+                  GPUs},
+  year =	 2016,
+  isbn =	 9781450344449,
+  publisher =	 {Association for Computing Machinery},
+  address_ =	 {New York, NY, USA},
+  url =		 {https://doi.org/10.1145/2983990.2984032},
+  doi =		 {10.1145/2983990.2984032},
+  booktitle =	 {Proceedings of the 2016 ACM SIGPLAN International
+                  Conference on Object-Oriented Programming, Systems,
+                  Languages, and Applications},
+  pages =	 {39--58},
+  numpages =	 20,
+  keywords =	 {GPU, OpenCL, barrier, portability, synchronisation},
+  location =	 {Amsterdam, Netherlands},
+  series =	 {OOPSLA 2016}
+}
+
+@inproceedings{10.1145/3035918.3064043,
+  title =	 {A Memory Bandwidth-Efficient Hybrid Radix Sort on
+                  {GPU}s},
+  author =	 {Stehle, Elias and Jacobsen, Hans-Arno},
+  year =	 2017,
+  booktitle =	 {Proceedings of the 2017 ACM International Conference
+                  on Management of Data},
+  location =	 {Chicago, Illinois, USA},
+  publisher =	 {Association for Computing Machinery},
+  address =	 {New York, NY, USA},
+  series =	 {SIGMOD '17},
+  pages =	 {417--432},
+  doi =		 {10.1145/3035918.3064043},
+  isbn =	 9781450341974,
+  url =		 {https://doi.org/10.1145/3035918.3064043},
+  numpages =	 16,
+  keywords =	 {gpu, heterogeneous computing, parallel sorting,
+                  radix sort, sorting}
+}
+
+@article{10.1145/322217.322232,
+  title =	 {Parallel Prefix Computation},
+  author =	 {Ladner, Richard E. and Fischer, Michael J.},
+  year =	 1980,
+  month =	 oct,
+  journal =	 {J. ACM},
+  publisher =	 {Association for Computing Machinery},
+  address_ =	 {New York, NY, USA},
+  volume =	 27,
+  number =	 4,
+  pages =	 {831--838},
+  doi =		 {10.1145/322217.322232},
+  issn =	 {0004-5411},
+  url =		 {https://doi.org/10.1145/322217.322232},
+  issue_date =	 {Oct. 1980},
+  numpages =	 8
+}
+
+@article{10.1145/356586.356588,
+  author =	 {Coffman, E. G. and Elphick, M. and Shoshani, A.},
+  title =	 {System Deadlocks},
+  year =	 1971,
+  issue_date =	 {June 1971},
+  publisher =	 {Association for Computing Machinery},
+  address_ =	 {New York, NY, USA},
+  volume =	 3,
+  number =	 2,
+  issn =	 {0360-0300},
+  url =		 {https://doi.org/10.1145/356586.356588},
+  doi =		 {10.1145/356586.356588},
+  abstract =	 {A problem of increasing importance in the design of
+                  large multiprogramming systems is the, so-called,
+                  deadlock or deadly-embrace problem. In this article
+                  we survey the work that has been done on the
+                  treatment of deadlocks from both the theoretical and
+                  practical points of view.},
+  journal =	 {ACM Comput. Surv.},
+  month =	 jun,
+  pages =	 {67--78},
+  numpages =	 12
+}
+
+@article{10.1145/7902.7903,
+  title =	 {Data parallel algorithms},
+  author =	 {Hillis, W. Daniel and Steele, Guy L.},
+  year =	 1986,
+  month =	 dec,
+  journal =	 {Commun. ACM},
+  publisher =	 {Association for Computing Machinery},
+  address =	 {New York, NY, USA},
+  volume =	 29,
+  number =	 12,
+  pages =	 {1170--1183},
+  doi =		 {10.1145/7902.7903},
+  issn =	 {0001-0782},
+  url =		 {https://doi.org/10.1145/7902.7903},
+  issue_date =	 {Dec. 1986},
+  abstract =	 {Parallel computers with tens of thousands of
+                  processors are typically programmed in a data
+                  parallel style, as opposed to the control parallel
+                  style used in multiprocessing. The success of data
+                  parallel algorithms—even on problems that at first
+                  glance seem inherently serial—suggests that this
+                  style of programming has much wider applicability
+                  than was previously thought.},
+  numpages =	 14
+}
+
+@inproceedings{10.1145/800061.808738,
+  author =	 {Fich, Faith E.},
+  title =	 {New bounds for parallel prefix circuits},
+  year =	 1983,
+  isbn =	 0897910990,
+  publisher =	 {Association for Computing Machinery},
+  address_ =	 {New York, NY, USA},
+  url =		 {https://doi.org/10.1145/800061.808738},
+  doi =		 {10.1145/800061.808738},
+  booktitle =	 {Proceedings of the Fifteenth Annual ACM Symposium on
+                  Theory of Computing},
+  pages =	 {100--109},
+  numpages =	 10,
+  series =	 {STOC '83}
+}
+
+@book{10.5555/1098666,
+  author =	 {Iverson, Kenneth E.},
+  title =	 {A programming language},
+  year =	 1962,
+  isbn =	 0471430145,
+  publisher =	 {John Wiley \& Sons, Inc.},
+  address =	 {USA}
+}
+
+@inproceedings{10.5555/110382.110597,
+  title =	 {Scan primitives for vector computers},
+  author =	 {Chatterjee, Siddhartha and Blelloch, Guy E. and
+                  Zagha, Marco},
+  year =	 1990,
+  location =	 {New York, New York, USA},
+  publisher =	 {IEEE Computer Society Press},
+  address =	 {Washington, DC, USA},
+  series =	 {Supercomputing '90},
+  pages =	 {666--675},
+  isbn =	 0897914120,
+  numpages =	 10
+}
+
+@inproceedings{10.5555/1280094.1280110,
+  title =	 {Scan Primitives for {GPU} Computing},
+  author =	 {Shubhabrata Sengupta and Mark Harris and Yao Zhang
+                  and John D. Owens},
+  booktitle =	 {Proceedings of the 22nd ACM SIGGRAPH/EUROGRAPHICS
+                  Symposium on Graphics Hardware},
+  series =	 {GH '07},
+  year =	 2007,
+  month =	 aug,
+  pages =	 {97--106},
+  doi =		 {10.2312/EGGH/EGGH07/097-106}
 }
 
 @inproceedings{10.5555/2031978.2032029,
-  author    = {Breitbart, Jens},
-  title     = {Static {GPU} threads and an improved scan algorithm},
-  year      = {2010},
-  isbn      = {9783642218774},
-  publisher = {Springer-Verlag},
-  address   = {Berlin, Heidelberg},
-  pages     = {373--380},
-  numpages  = {8},
-  location  = {Ischia, Italy},
-  series    = {Euro-Par 2010},
-  doi       = {10.1007/978-3-642-21878-1_46}
+  author =	 {Breitbart, Jens},
+  title =	 {Static {GPU} threads and an improved scan algorithm},
+  year =	 2010,
+  isbn =	 9783642218774,
+  publisher =	 {Springer-Verlag},
+  address =	 {Berlin, Heidelberg},
+  pages =	 {373--380},
+  numpages =	 8,
+  location =	 {Ischia, Italy},
+  series =	 {Euro-Par 2010},
+  doi =		 {10.1007/978-3-642-21878-1_46}
 }
 
-@inproceedings{gupta2012,
-  author    = {Kshitij Gupta and Jeff Stuart and John D. Owens},
-  title     = {A Study of Persistent Threads Style {GPU}
-               Programming for {GPGPU} Workloads},
-  booktitle = {Proceedings of Innovative Parallel Computing},
-  series    = {InPar '12},
-  year      = 2012,
-  month     = may,
-  doi       = {10.1109/InPar.2012.6339596}
+@inproceedings{1292373,
+  author =	 {Harris, David},
+  booktitle =	 {Thirty-Seventh Asilomar Conference on Signals,
+                  Systems \& Computers},
+  title =	 {A Taxonomy of Parallel Prefix Networks},
+  year =	 2003,
+  month =	 nov,
+  volume =	 2,
+  pages =	 {2213--2217},
+  keywords =
+                  {Taxonomy;Delay;Adders;Wiring;Logic;Circuits;Educational
+                  institutions;Sun;Laboratories;Computer architecture},
+  doi =		 {10.1109/ACSSC.2003.1292373}
+}
+
+@article{1675982,
+  title =	 {A Regular Layout for Parallel Adders},
+  author =	 {Richard P. Brent and Hsiang-Tsung Kung},
+  year =	 1982,
+  journal =	 {IEEE Transactions on Computers},
+  volume =	 {C-31},
+  number =	 3,
+  pages =	 {260--264},
+  doi =		 {10.1109/TC.1982.1675982},
+  keywords =	 {Addition;area-time complexity;carry
+                  lookahead;circuit design;combinational logic;models
+                  of computation;parallel addition;parallel polynomial
+                  evaluation;prefix computation;VLSI}
+}
+
+@article{4523358,
+  author =	 {Lindholm, Erik and Nickolls, John and Oberman,
+                  Stuart and Montrym, John},
+  journal =	 {IEEE Micro},
+  title =	 {NVIDIA Tesla: A Unified Graphics and Computing
+                  Architecture},
+  year =	 2008,
+  volume =	 28,
+  number =	 2,
+  pages =	 {39--55},
+  keywords =	 {Graphics;Computer architecture;Parallel
+                  processing;Pipelines;Concurrent computing;Load
+                  management;Multicore processing;Parallel
+                  programming;Portable computers;Workstations;Hot
+                  Chips 19;GPU;parallel processor;SIMT;SIMD;unified
+                  graphics and parallel computing
+                  architecture;graphics processing unit;cooperative
+                  thread array;Tesla},
+  doi =		 {10.1109/MM.2008.31}
+}
+
+@article{5009159,
+  title =	 {A Parallel Algorithm for the Efficient Solution of a
+                  General Class of Recurrence Equations},
+  author =	 {Kogge, Peter M. and Stone, Harold S.},
+  year =	 1973,
+  journal =	 {IEEE Transactions on Computers},
+  volume =	 {C-22},
+  number =	 8,
+  pages =	 {786--793},
+  doi =		 {10.1109/TC.1973.5009159},
+  keywords =	 {Program processors;Equations;Computers;Mathematical
+                  model;Parallel algorithms;Data
+                  mining;Polynomials;Parallel algorithms;parallel
+                  computation;recurrence problems;recursive doubling}
+}
+
+@article{5219801,
+  title =	 {A One-Microsecond Adder Using One-Megacycle
+                  Circuitry},
+  author =	 {Weinberger, A. and Smith, J. L.},
+  year =	 1956,
+  journal =	 {IRE Transactions on Electronic Computers},
+  volume =	 {EC-5},
+  number =	 2,
+  pages =	 {65--73},
+  doi =		 {10.1109/TEC.1956.5219801},
+  keywords =	 {Adders;NIST;Pulse amplifiers;Clocks;Arithmetic;Light
+                  emitting diodes;Pulse transformers;Acoustic
+                  pulses;Pulse circuits;Circuit analysis computing}
+}
+
+@article{5219822,
+  title =	 {Conditional-Sum Addition Logic},
+  author =	 {Sklansky, J.},
+  year =	 1960,
+  journal =	 {IRE Transactions on Electronic Computers},
+  volume =	 {EC-9},
+  number =	 2,
+  pages =	 {226--231},
+  doi =		 {10.1109/TEC.1960.5219822},
+  keywords =	 {Adders;Bibliographies;Delay effects;Propagation
+                  delay;Digital arithmetic;Logic
+                  design;Petroleum;Switching circuits;Distributed
+                  computing;Senior members}
+}
+
+@inproceedings{5470477,
+  author =	 {Xiao, Shucai and Feng, Wu-chun},
+  booktitle =	 {2010 IEEE International Symposium on Parallel &
+                  Distributed Processing (IPDPS)},
+  title =	 {Inter-block {GPU} communication via fast barrier
+                  synchronization},
+  year =	 2010,
+  pages =	 {1--12},
+  keywords =	 {Synchronization;Central Processing
+                  Unit;Kernel;Dynamic programming;Fast Fourier
+                  transforms;Computer architecture;Computer
+                  science;Graphics processing unit;Clocks},
+  doi =		 {10.1109/IPDPS.2010.5470477}
+}
+
+@inproceedings{6158699,
+  author =	 {Han, Tackdon and Carlson, David A.},
+  booktitle =	 {1987 IEEE 8th Symposium on Computer Arithmetic
+                  (ARITH)},
+  title =	 {Fast area-efficient {VLSI} adders},
+  year =	 1987,
+  pages =	 {49--56},
+  keywords =	 {Lead;Delay;Water;CMOS integrated circuits;Integrated
+                  circuit interconnections;CMOS technology},
+  doi =		 {10.1109/ARITH.1987.6158699}
+}
+
+@inproceedings{930129,
+  author =	 {Knowles, S.},
+  booktitle =	 {Proceedings 15th IEEE Symposium on Computer
+                  Arithmetic. ARITH-15 2001},
+  title =	 {A family of adders},
+  year =	 2001,
+  pages =	 {277--281},
+  keywords =	 {CMOS technology;Wiring;Costs;Construction
+                  industry;CMOS process;Very large scale
+                  integration;Arithmetic;Fasteners;Binary trees},
+  doi =		 {10.1109/ARITH.2001.930129}
 }
 
 @article{Blelloch:1989:SAP,
-  author  = {Guy E. Blelloch},
-  title   = {Scans as Primitive Parallel Operations},
-  journal = {IEEE Transactions on Computers},
-  year    = 1989,
-  volume  = 38,
-  number  = 11,
-  pages   = {1526--1538},
-  month   = nov,
-  doi     = {10.1109/12.42122}
+  author =	 {Guy E. Blelloch},
+  title =	 {Scans as Primitive Parallel Operations},
+  journal =	 {IEEE Transactions on Computers},
+  year =	 1989,
+  volume =	 38,
+  number =	 11,
+  pages =	 {1526--1538},
+  month =	 nov,
+  doi =		 {10.1109/12.42122}
+}
+
+@incollection{GPUGems3,
+  author =	 {Mark Harris and Shubhabrata Sengupta and John D.
+                  Owens},
+  editor =	 {Hubert Nguyen},
+  booktitle =	 {GPU Gems 3},
+  title =	 {Parallel Prefix Sum (Scan) with {CUDA}},
+  chapter =	 39,
+  publisher =	 {Addison Wesley},
+  month =	 aug,
+  year =	 2007,
+  pages =	 {851--876}
+}
+
+@article{Karp:1987:ERP,
+  author =	 {Karp, Richard M. and Rabin, Michael O.},
+  title =	 {Efficient randomized pattern-matching algorithms},
+  journal =	 {IBM Journal of Research and Development},
+  year =	 1987,
+  volume =	 31,
+  number =	 2,
+  month =	 mar,
+  pages =	 {249--260},
+  issn =	 {0018-8646},
+  doi =		 {10.1147/rd.312.0249},
+  publisher =	 {IBM}
+}
+
+@techreport{Merrill2009,
+  title =	 {Parallel Scan for Stream Architectures},
+  author =	 {Merrill, Duane and Grimshaw, Andrew},
+  year =	 2009,
+  doi =		 {https://doi.org/10.18130/V3XN3C},
+  note =	 {Accessed: 2024-12-09},
+  howpublished =
+                  {\url{https://libraopen.lib.virginia.edu/public_view/kd17cs85f}},
+  institution =	 {University of Virginia}
+}
+
+@techreport{Merrill2016,
+  title =	 {Single-pass Parallel Prefix Scan with Decoupled
+                  Look-back},
+  author =	 {Duane Merrill and Michael Garland},
+  year =	 2016,
+  month =	 mar,
+  number =	 {NVR-2016-002},
+  url =
+                  {https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back},
+  institution =	 {NVIDIA Corporation}
+}
+
+@manual{NvidiaCudaGuide,
+  title =	 {CUDA C Programming Guide},
+  author =	 {{NVIDIA Corporation}},
+  year =	 2024,
+  url =
+                  {https://docs.nvidia.com/cuda/cuda-c-programming-guide/},
+  note =	 {Accessed: 2024-12-06},
+  institution =	 {NVIDIA Corporation}
+}
+
+@techreport{NvidiaVoltaWhitepaper,
+  title =	 {NVIDIA Volta Architecture Whitepaper},
+  author =	 {{NVIDIA Corporation}},
+  year =	 2017,
+  url =
+                  {https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf},
+  institution =	 {NVIDIA Corporation}
+}
+
+@misc{Raph2021,
+  author =	 {Raph Levien and Elias Naur},
+  title =	 {Portable Prefix Sum for GPUs},
+  year =	 2021,
+  url =
+                  {https://raphlinus.github.io/gpu/2021/11/17/prefix-sum-portable.html},
+  note =	 {Accessed: 2025-01-02}
+}
+
+@incollection{Sengupta2011,
+  author =	 {Shubhabrata Sengupta and Mark Harris and Michael
+                  Garland and John D. Owens},
+  editor =	 {Jakub Kurzak and David A. Bader and Jack Dongarra},
+  booktitle =	 {Scientific Computing with Multicore and
+                  Accelerators},
+  title =	 {Efficient Parallel Scan Algorithms for many-core
+                  {GPU}s},
+  chapter =	 19,
+  publisher =	 {Taylor \& Francis},
+  year =	 2011,
+  series =	 {Chapman \& Hall/CRC Computational Science},
+  month =	 jan,
+  pages =	 {413--442},
+  doi =		 {10.1201/b10376-29}
+}
+
+@misc{adinets2022onesweepfastersignificantdigit,
+  title =	 {Onesweep: A Faster Least Significant Digit Radix
+                  Sort for {GPU}s},
+  author =	 {Andy Adinets and Duane Merrill},
+  year =	 2022,
+  url =		 {https://arxiv.org/abs/2206.01784},
+  eprint =	 {2206.01784},
+  archiveprefix ={arXiv},
+  primaryclass = {cs.DC}
+}
+
+@inproceedings{gupta2012,
+  author =	 {Kshitij Gupta and Jeff Stuart and John D. Owens},
+  title =	 {A Study of Persistent Threads Style {GPU}
+                  Programming for {GPGPU} Workloads},
+  booktitle =	 {Proceedings of Innovative Parallel Computing},
+  series =	 {InPar '12},
+  year =	 2012,
+  month =	 may,
+  doi =		 {10.1109/InPar.2012.6339596}
+}
+
+@article{sorensen2016,
+  author =	 {Sorensen, Tyler and Donaldson, Alastair F. and
+                  Batty, Mark and Gopalakrishnan, Ganesh and
+                  Rakamari\'{c}, Zvonimir},
+  title =	 {Portable inter-workgroup barrier synchronisation for
+                  GPUs},
+  year =	 2016,
+  issue_date =	 {October 2016},
+  publisher =	 {Association for Computing Machinery},
+  address_ =	 {New York, NY, USA},
+  volume =	 51,
+  number =	 10,
+  issn =	 {0362-1340},
+  url =		 {https://doi.org/10.1145/3022671.2984032},
+  doi =		 {10.1145/3022671.2984032},
+  journal =	 {SIGPLAN Not.},
+  month =	 oct,
+  pages =	 {39--58},
+  numpages =	 20,
+  keywords =	 {GPU, OpenCL, barrier, portability, synchronisation}
+}
+
+@inproceedings{sorensen2018,
+  title =	 {{GPU} Schedulers: How Fair Is Fair Enough?},
+  author =	 {Sorensen, Tyler and Evrard, Hugues and Donaldson,
+                  Alastair F.},
+  year =	 2018,
+  booktitle =	 {29th International Conference on Concurrency Theory
+                  (CONCUR 2018)},
+  publisher =	 {Schloss Dagstuhl -- Leibniz-Zentrum f{\"u}r
+                  Informatik},
+  address =	 {Dagstuhl, Germany},
+  series =	 {Leibniz International Proceedings in Informatics
+                  (LIPIcs)},
+  volume =	 118,
+  pages =	 {23:1--23:17},
+  doi =		 {10.4230/LIPIcs.CONCUR.2018.23},
+  isbn =	 {978-3-95977-087-3},
+  issn =	 {1868-8969},
+  url =
+                  {https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.CONCUR.2018.23},
+  editor =	 {Schewe, Sven and Zhang, Lijun},
+  urn =		 {urn:nbn:de:0030-drops-95619},
+  annote =	 {Keywords: GPU scheduling, Blocking synchronisation,
+                  GPU semantics}
+}
+
+@article{sorensen2021,
+  title =	 {Specifying and testing {GPU} workgroup progress
+                  models},
+  author =	 {Sorensen, Tyler and Salvador, Lucas F. and Raval,
+                  Harmit and Evrard, Hugues and Wickerson, John and
+                  Martonosi, Margaret and Donaldson, Alastair F.},
+  year =	 2021,
+  month =	 oct,
+  journal =	 {Proc. ACM Program. Lang.},
+  publisher =	 {Association for Computing Machinery},
+  address_ =	 {New York, NY, USA},
+  volume =	 5,
+  number =	 {OOPSLA},
+  doi =		 {10.1145/3485508},
+  url =		 {https://doi.org/10.1145/3485508},
+  issue_date =	 {October 2021},
+  articleno =	 131,
+  numpages =	 30,
+  keywords =	 {GPU, liveness, model checking, semantics, test case
+                  synthesis}
 }
