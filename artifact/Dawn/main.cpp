@@ -670,9 +670,9 @@ uint32_t Memcpy(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
     const uint32_t passCount = 1;
     if (args.shouldTime) {
         SetComputePassTimed(args.shaders.memcpy, comEncoder, args.gpu.querySet,
-                            args.workTiles, 0);
+                            1024, 0);
     } else {
-        SetComputePass(args.shaders.memcpy, comEncoder, args.workTiles);
+        SetComputePass(args.shaders.memcpy, comEncoder, 1024);
     }
     return passCount;
 }

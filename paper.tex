@@ -664,12 +664,12 @@ Any device supporting Dawn, with subgroup and timestamp query capabilities, and 
 \begin{itemize}
   \item Git
   \item CMake 3.10.2+ or another C++ build tool
-  \item C++17-compliant compiler
+  \item C++17-compliant compiler (Clang recommended)
   \item Python for fetching dependencies
 \end{itemize}
 
 \subsection{Building}
-Although native WebGPU is supported on various operating systems—most notably Windows, macOS, and Linux—this section will focus on building it in Unix-like environments for the sake of brevity, using CMake as the example build tool.
+Although native WebGPU is supported on various operating systems—most notably Windows, macOS, and Linux—this section will focus on building it in Unix-like environments for the sake of brevity, using CMake as the example build tool, and Clang++ as the example compiler.
 
 \subsubsection{Building Dawn}
 \begin{enumerate}
@@ -688,7 +688,7 @@ git fetch --all
 git checkout chromium/6950
   \end{lstlisting}
 
-  \item Build and install Dawn with your build tool and compiler of choice:
+  \item Build and install Dawn:
   \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 cd dawn
 cmake -S . -B out/Release \
@@ -698,7 +698,8 @@ cmake -S . -B out/Release \
   -DDAWN_BUILD_TESTS=OFF \
   -DDAWN_BUILD_SAMPLES=OFF \
   -DTINT_BUILD_TESTS=OFF \
-  -DTINT_BUILD_CMD_TOOLS=OFF
+  -DTINT_BUILD_CMD_TOOLS=OFF \
+  -DCMAKE_CXX_COMPILER=clang++
 
 cmake --build out/Release \
   --parallel <num_threads>
@@ -726,7 +727,8 @@ export CMAKE_PREFIX_PATH=/path/to/dawn/ \
   \item Build the artifact:
   \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 cmake -S . -B out/Release \
-  -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=clang++
   \end{lstlisting}
 
   \item Compile the project:

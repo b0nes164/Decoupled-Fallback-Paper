@@ -59,11 +59,11 @@ fn reduce(
     let dev_offset = wgid.x * VEC_TILE_SIZE;
     var i: u32 = s_offset + dev_offset;
 
-    var s_red = 0u;
+    var t_red = 0u;
     if(wgid.x < params.work_tiles - 1u){
         for(var k = 0u; k < VEC4_SPT; k += 1u){
             let t = scan_in[i];
-            s_red += dot(t, vec4(1u, 1u, 1u, 1u));
+            t_red += t.x + t.y + t.z + t.w;
             i += lane_count;
         }
     }
@@ -71,14 +71,14 @@ fn reduce(
     if(wgid.x == params.work_tiles - 1u){
         for(var k = 0u; k < VEC4_SPT; k += 1u){
             let t = select(vec4<u32>(0u, 0u, 0u, 0u), scan_in[i], i < params.vec_size);
-            s_red += dot(t, vec4(1u, 1u, 1u, 1u));
+            t_red += t.x + t.y + t.z + t.w;
             i += lane_count;
         }
     }
 
-    s_red = subgroupAdd(s_red);
+    t_red = subgroupAdd(t_red);
     if(laneid == 0u){
-        wg_partials[sid] = s_red;
+        wg_partials[sid] = t_red;
     }
     workgroupBarrier();
 

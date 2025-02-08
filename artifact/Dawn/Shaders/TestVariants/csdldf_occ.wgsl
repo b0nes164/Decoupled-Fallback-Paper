@@ -240,7 +240,8 @@ fn main(
                         var t_red = 0u;
                         var i = s_offset + fallback_id * VEC_TILE_SIZE;
                         for(var k = 0u; k < VEC4_SPT; k += 1u){
-                            t_red += dot(scan_in[i], vec4<u32>(1u, 1u, 1u, 1u));
+                            let t = scan_in[i];
+                            t_red += t.x + t.y + t.z + t.w;
                             i += lane_count;
                         }
 

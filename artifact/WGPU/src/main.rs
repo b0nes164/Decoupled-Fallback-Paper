@@ -613,7 +613,7 @@ impl PassTrait for MemcpyPass {
             &tester.gpu_context.query_set,
             &tester.gpu_shaders.memcpy,
             com_encoder,
-            tester.work_tiles,
+            1024,
             0u32,
         );
     }
