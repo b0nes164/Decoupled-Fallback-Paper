@@ -289,7 +289,7 @@ Our first attempt \raph{we'll add the cite post-review} at implementing a \emph{
 \emph{Scalar Fallback} suffers from two primary inefficiencies. First, the fallback reduction is performed serially by a single thread, progressing only when the lookback thread performs a waiting spin. This results in a $t$-sized blocking tile requiring $t$ spins to complete. Second, once the fallback completes, the lookback thread does not post its result to device memory, forcing every blocked workgroup to redundantly recompute the fallback. While \emph{Scalar Fallback} achieved speed-of-light performance on hardware with FPG and executed correctly without it, its performance on the latter was inferior to \emph{Reduce then Scan}.
 
 \section{Decoupled Fallback}
-\emph{Decoupled Fallback} addresses both inefficiencies. The key advance is to utilize the parallelism available in the workgroup to perform the fallback computation, rather than performing it sequentially. To do so requires nontrivial coordination within the workgroup, given that the \emph{Chained-Propagation} logic is performed by a single thread\thomas{Is this clearer as "single subgroup?"}.
+\emph{Decoupled Fallback} addresses both inefficiencies. The key advance is to utilize the parallelism available in the workgroup to perform the fallback computation, rather than performing it sequentially. To do so requires nontrivial coordination within the workgroup, given that the \emph{Chained-Propagation} logic is typically performed by the first subgroup.
 
 \begin{algorithm}
   \small
@@ -513,7 +513,7 @@ The atomic splitting technique generalizes to monoids of arbitrary size.
 
 \section{Evaluation}
 \subsection{Experimental Setup}
-We configure workgroups with a size $w = 256$ threads, where each thread processes $p = 4$ vectors of size 4, resulting in 16 elements per thread and a total work tile size of $t = 4096$. Through testing, \john{across all devices (?)} we find a maximum spin count of 4 effectively balances responsiveness to blocking while minimizing false-positive fallbacks. As the size of the local spine is inversely proportional to the subgroup size, we allocate sufficient shared memory to accommodate the WebGPU standard's minimum subgroup size of 4. Due to our overall thriftiness with shared memory, total usage remains modest at only $\sim$1 KB\@. For all tests, we use an input size of $2^{25}$ \john{It would be worthwhile, I think, to run a test against CUB where the x axis is problem size and the y axis is throughput. A reviewer might think we're hiding something if we only report results for one (large) input size. I imagine that our performance will look similar to CUB's at all input sizes and that is the result we want.} and an inclusive prefix sum. Our test hardware, listed POSITIONAL-RELATION, spans a wide range of FPG and performance capabilities. We empirically find that the Google Chrome native implementation of WebGPU (Dawn) provides the best performance and use it for all testing, except on the Arm-Mali GPU, which requires Android native, necessitating the use of WGPU\@.\footnote{To keep the perforamance as close to Dawn as possible, we translate our WGSL code with Dawn's Tint transpiler, and provide the raw SPIR-V to WGPU\@.}
+We configure workgroups with a size $w = 256$ threads, where each thread processes $p = 4$ vectors of size 4, resulting in 16 elements per thread and a total work tile size of $t = 4096$. Through testing, \john{across all devices (?)} \thomas{Only rigorously tested on the 2080, everything else was very light.}we find a maximum spin count of 4 effectively balances responsiveness to blocking while minimizing false-positive fallbacks. As the size of the local spine is inversely proportional to the subgroup size, we allocate sufficient shared memory to accommodate the WebGPU standard's minimum subgroup size of 4. Due to our overall thriftiness with shared memory, total usage remains modest at only $\sim$1 KB\@. For all tests, we use an input size of $2^{25}$ and an inclusive prefix sum. Our test hardware, listed POSITIONAL-RELATION, spans a wide range of FPG and performance capabilities. We empirically find that the Google Chrome native implementation of WebGPU (Dawn) provides the best performance and use it for all testing, except on the Arm-Mali GPU, which requires Android native, necessitating the use of WGPU\@.\footnote{To keep the perforamance as close to Dawn as possible, we translate our WGSL code with Dawn's Tint transpiler, and provide the raw SPIR-V to WGPU\@.}
 \begin{table}
   \centering
   \small
@@ -534,17 +534,18 @@ We configure workgroups with a size $w = 256$ threads, where each thread process
 
 \subsection{Performance Comparison}
 \subsubsection{Performance Versus Contemporary Implementations:}
-We first compare \emph{Decoupled Fallback} (\emph{CSDLDF}) to \emph{Decoupled Lookback} (\emph{CSDL}) in NVIDIA’s \emph{CUB} library\footnote{CUDA toolkit 12.8, CUB/CCCL VERSION}~\cite{}. As this test is limited to CUDA, evaluation is restricted to the 2080 Super. Due to WebGPU’s 128MB storage buffer limit, we test input sizes from $2^{10}$ to $2^{25}$\!.
+We first compare \emph{Decoupled Fallback} (\emph{CSDLDF}) to the \emph{Decoupled Lookback} (\emph{CSDL}) implementation found in NVIDIA’s \emph{CUB} library, using the 2080 Super only. To assess the impact of differing APIs, we also implement \emph{CSDLDF} in CUDA.\footnote{Due to WebGPU’s 128MB storage buffer limit, our maximum test size is limited to $2^{25}$ 32-bit elements.} 
 
-To isolate the effect of \emph{Decoupled Fallback}, we implement our own \emph{CSDL} with an identical local-scan implementation. Our \emph{CSDL} implementation outperforms \emph{CUB} before reaching saturation, and likely due to this advantage, \emph{CSDLDF} achieves near-identical performance to \emph{CUB} despite its additional \emph{Chained-Propagation} overhead. While Dawn struggles, it still reaches saturation at larger inputs. However, cross-API comparisons remain challenging, as despite nearly identical high-level code, all implementations perform significantly better in CUDA, particularly for inputs smaller than $2^{20}$\!, where CUDA more effectively utilizes the 2080 Super’s 4MB L2 cache.
+Cross-API comparisons remain challenging, as despite being nearly identical at a high level, the CUDA implementation consistently outperforms its WebGPU counterpart. Additionally, the performance cost of \emph{Decoupled Fallback} is most evident in our CUDA implementation when the entire input fits within the 2080 Super’s 4MB L2 cache, where increased synchronization and compute overhead slightly reduce throughput. However, at larger input sizes, where memory accesses extend beyond the cache, \emph{CSDLDF} achieves parity with \emph{CUB}.
 
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{graphics/cuda_plot.pdf}
+  \caption{Performance versus \emph{CUB} (NVIDIA 2080 Super)}
 \end{figure}
 
 \subsubsection{Same-API Performance Versus Baseline Measures}
-To evaluate the performance of \emph{Decoupled Fallback} (\emph{CSDLDF}), we compare it against two key benchmarks: \emph{Memcopy}\textdagger{~\ref{sec:memcopy}} and \emph{Reduce then Scan}\textdagger{~\ref{sec:rts}} (\emph{RTS}). \emph{RTS} serves as a baseline to demonstrate the performance gains of our approach over the previous FPG-constrained technique. \emph{Memcopy} is included as a point of reference, as it shares the same $2n$ global memory movement as \emph{Decoupled Fallback}, without any compute overhead and thus is guaranteed to be memory bandwidth bound. \john{Nit: I would use \texttt{memcpy} as the name of this benchmark to match how it's actually called in C etc.}
+We next compare \emph{CSDLDF} against two key benchmarks: \emph{Memcpy}\textdagger{~\ref{sec:memcpy}} and \emph{Reduce then Scan}\textdagger{~\ref{sec:rts}} (\emph{RTS}). \emph{RTS} serves as a baseline to demonstrate the performance gains of our approach over the previous FPG-constrained technique. \emph{Memcpy} is included as a point of reference, as it shares the same $2n$ global memory movement as \emph{Decoupled Fallback}, and without compute overhead, is guaranteed to be memory bandwidth bound.
 
 \begin{table*}
   \centering
@@ -552,10 +553,10 @@ To evaluate the performance of \emph{Decoupled Fallback} (\emph{CSDLDF}), we com
     \toprule
     Metric & Intel HD620 & ARM Mali-G78 MP20 & Apple M1 Pro Max & Nvidia 2080 Super & AMD 7900 XT \\
     \midrule
-    H-Mean \emph{Memcopy} (32-bit ele/sec)  & 1.498e9   & 106.663e9 & 54.203e9  & 54.203e9  & 71.190e9  \\
+    H-Mean \emph{Memcpy} (32-bit ele/sec)  & 1.498e9   & 106.663e9 & 54.203e9  & 54.203e9  & 71.190e9  \\
     H-Mean \emph{CSDLDF} (32-bit ele/sec)   & 1.487e9   & 112.430e9 & 53.256e9  & 53.256e9  & 95.737e9  \\
     H-Mean \emph{RTS} (32-bit ele/sec)      & 1.060e9   & 82.302e9  & 35.709e9  & 35.709e9  & 62.868e9  \\
-    \emph{CSDLDF}/\emph{Memcopy} (\%)       & 99.2\%    & 105.4\%   & 98.3\%    & 98.3\%    & 134.5\%   \\
+    \emph{CSDLDF}/\emph{Memcpy} (\%)       & 99.2\%    & 105.4\%   & 98.3\%    & 98.3\%    & 134.5\%   \\
     \emph{CSDLDF}/\emph{RTS} (\%)          & 140.2\%   & 136.6\%   & 149.1\%   & 149.1\%   & 152.3\%   \\
     Avg Spins per Wg    & 0.306    & 1.380    & 0.418    & 0.418    & 0.133    \\
     Avg Lookback Length per Wg  & 1.725    & 3.510    & 13.139   & 13.139   & 20.867   \\
@@ -563,14 +564,20 @@ To evaluate the performance of \emph{Decoupled Fallback} (\emph{CSDLDF}), we com
     Avg Total Successful Insertions    & 6.084     & 57.875    & 1.205    & 1.205    & 1.001    \\
     \bottomrule
   \end{tabular*}
-  \caption{MALI ABSOLUTE SPEED WRONG!, \emph{Decoupled Fallback} performance, 32-bit Inclusive Prefix Sum, Input Size $\mathbf{2^{25}}$. \john{I would label metrics as ``H-Mean \emph{Memcopy} (32-bit ele/sec $\cdot 10^9$)'' and then leave the exponents out of the main table.}\john{Separately, h-mean is the right summary statistic \emph{if} the distribution is Gaussian, which it almost certainly is not. Like most measurements of this type, it's much more likely log-normal. I am influenced here by \url{https://lemire.me/blog/2023/04/06/are-your-memory-bound-benchmarking-timings-normally-distributed/}.}\john{I note Apple and NVIDIA timings are identical, but figure you know that.}}
+  \caption{MALI ABSOLUTE SPEED WRONG!, \emph{Decoupled Fallback} performance, 32-bit Inclusive Prefix Sum, Input Size $\mathbf{2^{25}}$. \john{I would label metrics as ``H-Mean \emph{Memcpy} (32-bit ele/sec $\cdot 10^9$)'' and then leave the exponents out of the main table.}\john{Separately, h-mean is the right summary statistic \emph{if} the distribution is Gaussian, which it almost certainly is not. Like most measurements of this type, it's much more likely log-normal. I am influenced here by \url{https://lemire.me/blog/2023/04/06/are-your-memory-bound-benchmarking-timings-normally-distributed/}.}}
   \label{tab:results}
 \end{table*}
 
-As shown in Table~\ref{tab:results}, with the exception of the ARM Mali, \emph{CSDLDF} achieves at least a $\sim$40\% speedup over \emph{RTS} across all tested devices. Since \emph{Memcopy} is purely memory bandwidth bound, \emph{CSDLDF} should ideally match its throughput. This holds across most devices, except for the AMD 7900 XT, where \emph{CSDLDF} slightly outperforms \emph{Memcopy}, suggesting improved memory structuring due to compute operations. \john{I have no idea what this previous phrase means.} On the ARM Mali, \emph{CSDLDF} appears to underperform, achieving only a 36\% speedup instead of the expected 50\%. However, as its performance is nearly identical to \emph{Memcopy}, this indicates that the implementation is memory-bandwidth-bound, limiting further gains.
+As shown in Table~\ref{tab:results}, with the exception of the ARM Mali, \emph{CSDLDF} achieves at least a $\sim$40\% speedup over \emph{RTS} across all tested devices. Since \emph{Memcpy} is purely memory bandwidth bound, \emph{CSDLDF} should ideally match its throughput. This holds across most devices, except for the AMD 7900 XT, where \emph{CSDLDF} outperforms \emph{Memcpy}, suggesting that the additional compute latency counterintuitively improves memory access patterns by reducing paging. \john{I have no idea what this previous phrase means.} \thomas{In my head, if you read from location A, and then write immediately to B, you need room in your cache for A and B. If you read, do just the right amount of work, then write B, you only need to hold A or B? Not sure if this is correct.} On the ARM Mali, \emph{CSDLDF} appears to underperform, achieving only a 36\% speedup instead of the expected 50\%. However, as its performance is nearly identical to \emph{Memcpy}, this indicates that the implementation is memory-bandwidth-bound, limiting further gains.
 
-\subsection{How (un)fair is fair?}
-Show the stats of each device. How many lookbacks?  How many fallbacks initiated? How many successful fallbacks?
+\subsection{Decoupled Fallback Statistics}
+To better understand how devices with differing schedulers interact with \emph{CSDLDF}, we also collect a number of statistics during its execution: 
+\begin{itemize}
+  \item \textbf{Spins per Workgroup:}
+  \item \textbf{Lookback Length per Workgroup:}
+  \item \textbf{Total Fallbacks Initiated:}
+  \item \textbf{Total Successful Insertions:}
+\end{itemize}
 
 \subsection{Simulated Blocking}
 To demonstrate the resilience of our technique under fallback rates significantly higher than those observed organically on devices, we intentionally force fallbacks by omitting the posting of work tile reductions. Starting with infrequent omissions---1 in 512 workgroups---we progressively increase the rate to near-continuous levels, reaching 1 in 2 workgroups.
@@ -627,8 +634,8 @@ This increased sensitivity to fairness exacerbates existing issues which negativ
 \clearpage
 \appendix
 \section{Artifact}
-\subsection{Baseline Comparisons: \emph{Memcopy}}
-\label{sec:memcopy}
+\subsection{Baseline Comparisons: \emph{Memcpy}}
+\label{sec:memcpy}
 \begin{table}[h!]
   \small
   \centering
@@ -646,7 +653,7 @@ This increased sensitivity to fairness exacerbates existing issues which negativ
   \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second)}
   \label{tab:memory_bandwidth}
 \end{table}
-Although all backend APIs support \emph{timestamp queries inside encoders}, Apple GPUs do not, so we are forced to implement our own \emph{Memcopy} kernel to measure memory bandwidth, as opposed to simply timing an API's copy buffer operation. It is well known that \emph{observed} peak memory bandwidth, tends to diverge from vendor-listed peak bandwidth, so for completeness we list these figures above. We make a number of observations:
+Although all backend APIs support \emph{timestamp queries inside encoders}, Apple GPUs do not, so we are forced to implement our own \emph{Memcpy} kernel to measure memory bandwidth, as opposed to simply timing an API's copy buffer operation. It is well known that \emph{observed} peak memory bandwidth, tends to diverge from vendor-listed peak bandwidth, so for completeness we list these figures above. We make a number of observations:
 \begin{itemize}
   \item \textbf{Intel HD620:} As our HD620 laptop is only equipped with a single memory DIMM, its peak bandwidth is limited to the lower bound, 2.13e9 ele/sec. Thus, our observed bandwidth of 1.498e9 is reasonable.
   \item \textbf{ARM Mali-G78 MP20 / Pixel 6a (Tensor):} The observed throughput is significantly lower than expected, despite a vendor-listed bandwidth of 6.40e9 ele/sec. The cause of this discrepancy remains unclear, but we note other developers have observed similar speeds.
@@ -698,7 +705,6 @@ git checkout chromium/6950
 
   \item Build and install Dawn:
   \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
-cd dawn
 cmake -S . -B out/Release \
   -DDAWN_FETCH_DEPENDENCIES=ON \
   -DDAWN_ENABLE_INSTALL=ON \
