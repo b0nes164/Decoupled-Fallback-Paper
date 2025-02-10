@@ -175,6 +175,7 @@ Although our goal is to create a fully portable and highly performant scan imple
 Contemporary GPUs are hierarchically organized, massively parallel processors designed to prioritize throughput over latency. (one sentence on thread hierarchy maybe). As comprehensive descriptions of the GPU programming model~\cite{} already exist, we focus on the aspects most relevant to this work: scheduling and synchronization.
 
 \raph{I think "NVIDIA Tesla: A Unified Graphics and Computing Architecture" Lindholm 2008 might be a good choice for the above cite.}
+\john{I have historically used that Lindholm reference for the GPU hardware, but for the programming model I have used Nickolls, ``Scalable parallel programming with CUDA'' (ACM Queue, Mar/Apr 2008).}
 
 On GPU hardware, scheduling is divided into two levels: a \emph{workgroup} scheduler, which manages kernel launches and maps virtual processors, workgroups, to physical processors, \emph{multiprocessors}, and a \emph{subgroup} scheduler, responsible for selecting which of the currently \emph{occupant} subgroups on a multiprocessor for execution. The GPU programming model virtualizes processors to ensure GPU programs---\emph{kernels}---remain portable across hardware with differing physical resources. Effective virtualization requires \emph{oversubscription}, a programming paradigm where tasks are (over)partitioned in such a way that kernels request more virtual processors than are physically available. As a result, a single multiprocessor may host multiple workgroups simultaneously. However, as a consequence of virtualization, the developer relinquishes control over the order in which workgroups are launched, and once a workgroup begins execution on a multiprocessor, it must run to completion and cannot context switch.
 
@@ -270,7 +271,7 @@ Applying this schema to \emph{Chained-Scan}, workgroups correspond to "tasks" an
 
 Although the serial assignment of work tiles ensures that predecessor tiles are scheduled or completed, it does not guarantee their reductions will be available when a workgroup begins \emph{Chained Propagation}. This uncertainty arises because workgroups are scheduled \emph{individually}, meaning a predecessor may not have had the opportunity to compute and post its reduction. In such cases, the dependent workgroup spins, consuming execution resources while waiting. Because workgroups may share execution resources by being co-resident on the same multiprocessor\john{Question, and maybe this is worth a footnote. What if we guaranteed that no multiprocessor ever had more than one workgroup scheduled to it, say by always allocating the maximum amount of workgroup memory? Of course there would be performance issues. But does that solve the problem? Or do we descend into an analogous issue with subgroup scheduling?}, without FPG, the scheduler may indefinitely prioritize the spinning workgroup over its predecessor, preventing progress and creating a circular dependency, satisfying condition 4b and resulting in deadlock.
 
-\raph{Answering John's question here. Short answer no. One mental model that would illustrate this is a workgroup being preempted from a multiprocessor for system reasons, for example to perform compositing for scanout. I brought this up with a GPU engineer and they said this wasn't actually the reason for lack of FPG on their hardware, but wasn't able to explain the true story for proprietary reasons. In any case, while I am fine to a large extent talking operationally about scheduling etc, at the end of the day you need a formal model that tells you which computations will terminate. That's what Tyler's work is about and I think it's best to cite it and not try to re-litigate it, especially in oversimplified form. Also, taking another look at "Specifying and Testing," I notice that they use "livelock" but not deadlock to describe situations where system progress depends on FPG. I'm not finding a cite for this now, but if memory serves, a deadlock condition is one in which no progress is possible under *any* scheduling condition, while in livelock there is some scheduler condition that could resolve the livelock, but it is not resolved under all such conditions.}
+\raph{Answering John's question here. Short answer no. One mental model that would illustrate this is a workgroup being preempted from a multiprocessor for system reasons, for example to perform compositing for scanout. I brought this up with a GPU engineer and they said this wasn't actually the reason for lack of FPG on their hardware, but wasn't able to explain the true story for proprietary reasons. In any case, while I am fine to a large extent talking operationally about scheduling etc, at the end of the day you need a formal model that tells you which computations will terminate. That's what Tyler's work is about and I think it's best to cite it and not try to re-litigate it, especially in oversimplified form. Also, taking another look at "Specifying and Testing," I notice that they use "livelock" but not deadlock to describe situations where system progress depends on FPG. I'm not finding a cite for this now, but if memory serves, a deadlock condition is one in which no progress is possible under *any* scheduling condition, while in livelock there is some scheduler condition that could resolve the livelock, but it is not resolved under all such conditions.} \john{The reason that I ask this question is that I take the perspective of a reviewer who decides, oh, I can solve this FPG problem by doing something simple, like ``scheduling only one workgroup per processor''. The reviewer, of course, doesn't actually implement this, but it totally kills the paper when a reviewer gets it into his/her head that there is another way to go about this and why didn't we study THAT way, reject, go back and incorporate my amazing idea. We need to explicitly close the door emphatically in the paper to obvious, simple, unworkable solutions; we can't give reviewers any headroom to substitute their own judgment when we know better.}
 
 For example, consider a scan operation requiring two workgroups on a GPU with a single multiprocessor. Both workgroups are co-resident, but the multiprocessor has only one scheduling unit, which lacks FPG\@. Both workgroups launch and acquire their respective work tiles. The workgroup responsible for \emph{Work Tile 1} finishes first and begins spinning, repeatedly querying the memory address for the reduction of \emph{Work Tile 0}. However, because the scheduler lacks FPG, it continues scheduling \emph{Work Tile 1}, leaving \emph{Work Tile 0} starved and unable to complete its reduction. As a result, \emph{Work Tile 1} spins indefinitely, eventually triggering \emph{timeout detection and recovery}\footnote{\emph{Timeout detection and recovery} is} (TDR) and crashing the host program.
 
@@ -351,6 +352,7 @@ Our first attempt \raph{we'll add the cite post-review} at implementing a \emph{
 To optimize the fallback operation, we employ three strategies. (1) First, a shared memory \emph{control flag} enables threads performing the lookback to signal the entire workgroup when a fallback is necessary. (2) Next, we limit the number of spins a thread can perform while waiting on a tile; exceeding this threshold triggers a fallback. While this approach risks redundant fallbacks---since a late tile is indistinguishable from a genuinely blocking one---exposing the maximum spin count as a tunable parameter helps minimize false positives. \john{I can see it is sensible to have a maximum spin count but I do not see how the action of exposing the maximum spin count to the programmer minimizes false positives.} (3) Finally, after completing a fallback, the workgroup attempts to post the reduction result of the blocking tile, preventing redundant fallbacks by subsequent workgroups.
 
 \raph{To address John's comment: increasing the spin count reduces false positives; a false positive can be defined as the preceding tile posting the result late, meaning that there is some spin count for which it would proceed. However, it also delays progress in the true positive case. The deeper way to talk about this is to engage the cost model, which is done to some extent in the paragraph below. The cost of a false positive includes increased memory traffic and also compute opportunity cost of other workgroups which can be scheduled on the same multiprocessor. Indeed, with sufficient occupancy the cost of a workgroup spinning (or making scalar progress) is minimal. So optimal performance really depends on the *distribution* of spin counts. I put all this in a comment but think we can say it in the paper.}
+\john{My point was not about the relationship between a spin count and false positives, it was that the draft specifically said that exposing the maximum spin count to the programmer is what minimized false positives. It's not the exposing that minimizes false positives.}
 
 The viability of \emph{Decoupled-Fallback} relies on the same cache locality properties as \emph{Decoupled-Lookback}. Since no subgroup scheduler is perfectly fair, all hardware inherently has a natural fallback rate $f$\!, independent of FPG, due to \emph{false-positive} fallback operations. As a result, memory bandwidth usage increases (and we expect throughput to decrease) by $O(fn)$ to $O((2 + f)n)$. However, just as serial ordering confines spine memory accesses within an $o$-width sliding window, scan input accesses are likewise constrained to an $ot$-width window, increasing their likelihood of residing in cache. As we later empirically demonstrate(Simulated Blocking Section), this cache residency significantly reduces memory access costs, making fallback operations predominantly compute-bound when reducing a blocking tile. Since pure reduction has minimal overhead, throughput approaches $O(2n)$ on most devices.
 
@@ -359,7 +361,7 @@ At a high level, our algorithm follows a five-phase construction:
 \begin{enumerate}
   \item[(0)] \textbf {Initialization}: The first thread in the workgroup atomically acquires its work-tile by atomically incrementing a value in global memory.
   \item \textbf{Load Phase}: Each thread loads $p$ vectors, consuming the input in a subgroup-blocked ordering. For a subgroup size $s$ and vector size $v$, each subgroup processes a contiguous block of size $s \cdot p \cdot v$.
-  \item \textbf{Subgroup-Rake}: Each thread scans its vectors privately, then joins $p$ raking Kogge-Stone~\cite{} subgroup scans,
+  \item \textbf{Subgroup-Rake}: Each thread scans its vectors privately, then joins $p$ raking Kogge-Stone~\cite{5009159} subgroup scans,
         allowing the subgroup-block scan to remain barrier-free and in registers. The subgroup-block reduction is then posted to shared memory. For a workgroup of size $w$, subgroup-raking reduces the size of the local spine to $w/s$.
   \item \textbf{Workgroup-Wide Scan}: The workgroup collectively performs a scan across the subgroup partial reductions, writing the results back to shared memory upon completion.
   \item \textbf{Chained Propagation, Decoupled Fallback}: The first subgroup in the workgroup performs a lookback operation to acquire the reduction result of all previous workgroups, engaging in fallback operations as necessary. Once completed, this subgroup posts the results to shared memory for the workgroup to consume.
@@ -420,7 +422,7 @@ Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3
 \end{algorithm}
 
 \subsection{Workgroup-Wide Scan}
-The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{} scan network embedded with Kogge-Stone~\cite{} subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a subgroup \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase causes no performance degradation due to our modest overall use of shared memory, such as our deliberate retention of vectors in registers and the efficiency of subgroup raking. Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; and zero bank conflicts across all supported subgroup sizes.\footnote{Since we also require a workgroup-wide pure reduce operation, we obtain this by omitting the fanout operation and substituting the subgroup Kogge-Stone scan with a subgroup butterfly reduction.}
+The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{10.1145/322217.322232} scan network embedded with Kogge-Stone~\cite{5009159} subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a subgroup \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase causes no performance degradation due to our modest overall use of shared memory, such as our deliberate retention of vectors in registers and the efficiency of subgroup raking. Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; and zero bank conflicts across all supported subgroup sizes.\footnote{Since we also require a workgroup-wide pure reduce operation, we obtain this by omitting the fanout operation and substituting the subgroup Kogge-Stone scan with a subgroup butterfly reduction.}
 
 \subsection{Decoupled-Fallback}
 To reiterate, the goal of \emph{Chained Propagation} is twofold: first, to determine the reduction of all preceding work tiles, and second, to relay those values to succeeding tiles to accelerate their own lookback operations. Following the \emph{Decoupled-Lookback} technique, we model the inter-workgroup spine as a finite-state machine, where each work tile is represented by a reduction value and a state, stored in global memory. Each tile may exist in one of three states:
@@ -634,13 +636,13 @@ This increased sensitivity to fairness exacerbates existing issues which negativ
   \centering
   \begin{tabular}{l r r}
     \toprule
-    Device & \makecell{Memory \\ Bandwidth \\ (GB/s)} & \makecell{Expected \\ Throughput \\ (32-bit ele/sec)} \\
+    Device                                & \makecell{Memory                   \\ Bandwidth \\ (GB/s)} & \makecell{Expected \\ Throughput \\ (32-bit ele/sec)} \\
     \midrule
-    Intel HD620 (Single-/Dual-Channel) & 17.1 / 34.1  & 2.13e9 / 4.26e9 \\
-    ARM Mali-G78 MP20 / Pixel 6a (Tensor) & 51.2  & 6.40e9 \\
-    Apple M1 Pro Max   & 200  & 25.0e9 \\
-    Nvidia 2080 Super  & 496  & 62.0e9 \\
-    AMD 7900 XT        & 800  & 100.0e9 \\
+    Intel HD620 (Single-/Dual-Channel)    & 17.1 / 34.1      & 2.13e9 / 4.26e9 \\
+    ARM Mali-G78 MP20 / Pixel 6a (Tensor) & 51.2             & 6.40e9          \\
+    Apple M1 Pro Max                      & 200              & 25.0e9          \\
+    Nvidia 2080 Super                     & 496              & 62.0e9          \\
+    AMD 7900 XT                           & 800              & 100.0e9         \\
     \bottomrule
   \end{tabular}
   \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second)}
@@ -682,14 +684,14 @@ Although native WebGPU is supported on various operating systems—most notably 
 \subsubsection{Building Dawn}
 \begin{enumerate}
   \item[(0)] Dawn depends on the following packages (Ubuntu package names):
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 sudo apt install libxrandr-dev \
   libxinerama-dev libxcursor-dev libxi-dev \
   libx11-xcb-dev mesa-common-dev
   \end{lstlisting}
 
   \item Clone the Dawn repository:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 git clone https://dawn.googlesource.com/dawn
 cd dawn
 git fetch --all
@@ -697,7 +699,7 @@ git checkout chromium/6950
   \end{lstlisting}
 
   \item Build and install Dawn:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 cd dawn
 cmake -S . -B out/Release \
   -DDAWN_FETCH_DEPENDENCIES=ON \
@@ -722,25 +724,25 @@ After successfully building and installing Dawn, follow these steps to build the
 
 \begin{enumerate}
   \item Navigate to the artifact directory:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 cd Decoupled-Fallback-Paper/artifact/Dawn
   \end{lstlisting}
 
   \item Set the `CMAKE\_PREFIX\_PATH` to point to your Dawn installation directory:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 export CMAKE_PREFIX_PATH=/path/to/dawn/ \
   install/Release
   \end{lstlisting}
 
   \item Build the artifact:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 cmake -S . -B out/Release \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_COMPILER=clang++
   \end{lstlisting}
 
   \item Compile the project:
-  \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
+        \begin{lstlisting}[basicstyle=\ttfamily\small, frame=single]
 cmake --build out/Release
   \end{lstlisting}
 \end{enumerate}
@@ -754,14 +756,14 @@ Once the artifact has been successfully built, you can run it using the followin
 
 where:
 \begin{itemize}
-    \item \texttt{<TestType>} specifies the test to run. Valid options are:
-    \begin{itemize}
-        \item \texttt{csdl} – Runs the \emph{Decoupled Lookback} test. \textbf{Warning}, this \emph{will} crash without FPG\@.
-        \item \texttt{csdldf} – Runs the \emph{Decoupled Fallback} test.
-        \item \texttt{full} – Runs a full set of tests, including multiple \emph{Decoupled Fallback} simulations.
-    \end{itemize}
-    \item \texttt{record} (optional) enables recording the test results to a CSV file.
-    \item \texttt{deviceName} (optional) appends the device name to recorded test results.
+  \item \texttt{<TestType>} specifies the test to run. Valid options are:
+        \begin{itemize}
+          \item \texttt{csdl} – Runs the \emph{Decoupled Lookback} test. \textbf{Warning}, this \emph{will} crash without FPG\@.
+          \item \texttt{csdldf} – Runs the \emph{Decoupled Fallback} test.
+          \item \texttt{full} – Runs a full set of tests, including multiple \emph{Decoupled Fallback} simulations.
+        \end{itemize}
+  \item \texttt{record} (optional) enables recording the test results to a CSV file.
+  \item \texttt{deviceName} (optional) appends the device name to recorded test results.
 \end{itemize}
 
 \bibliographystyle{ACM-Reference-Format}
