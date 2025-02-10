@@ -670,9 +670,9 @@ uint32_t Memcpy(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
     const uint32_t passCount = 1;
     if (args.shouldTime) {
         SetComputePassTimed(args.shaders.memcpy, comEncoder, args.gpu.querySet,
-                            1024, 0);
+                            args.workTiles, 0);
     } else {
-        SetComputePass(args.shaders.memcpy, comEncoder, 1024);
+        SetComputePass(args.shaders.memcpy, comEncoder, args.workTiles);
     }
     return passCount;
 }
@@ -762,7 +762,7 @@ void Run(std::string testLabel, const TestArgs& args,
                 const uint64_t t = GetTime(args.gpu, &args.buffs, passCount);
                 totalTime += t;
                 if (args.shouldRecord) {
-                    data.time[i - 1] = static_cast<double>(args.size) / t;
+                    data.time[i - 1] = static_cast<double>(t);
                 }
             }
 
@@ -844,6 +844,7 @@ enum TestType {
     Csdl,
     Csdldf,
     Full,
+    Size,
 };
 
 auto printUsage = []() {
@@ -872,6 +873,8 @@ int main(int argc, char* argv[]) {
         testType = Csdldf;
     } else if (testTypeStr == "full") {
         testType = Full;
+    } else if (testTypeStr == "size") {
+        testType = Size;
     } else {
         printUsage();
         return EXIT_FAILURE;
@@ -960,6 +963,20 @@ int main(int argc, char* argv[]) {
                     CSDLDFSimulate);
             }
             break;
+        case Size:
+            for (uint32_t i = 10; i <= 25; ++i) {
+                const uint32_t currentSize = 1u << i;
+                const uint32_t currentWorkTiles =
+                    (currentSize + PART_SIZE - 1) / PART_SIZE;
+                args.size = currentSize;
+                args.workTiles = currentWorkTiles;
+                InitializeUniforms(gpu, &buffs, currentSize, currentWorkTiles,
+                                   0);
+                Run(deviceName + "CSDLDF_Size_" + std::to_string(currentSize),
+                    args, CSDLDF);
+            }
+            break;
+
         default:
             break;
     }

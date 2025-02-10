@@ -34,12 +34,25 @@ var<storage, read_write> unused_2: array<u32>;
 var<storage, read_write> unused_3: array<u32>;
 
 const BLOCK_DIM = 256u;
+const VEC4_SPT = 4u;
+const VEC_TILE_SIZE = BLOCK_DIM * VEC4_SPT;
+
 @compute @workgroup_size(BLOCK_DIM, 1, 1)
 fn main(
-    @builtin(global_invocation_id) id: vec3<u32>,
-    @builtin(num_workgroups) griddim: vec3<u32>) {
-    let end = params.vec_size;
-    for(var i = id.x; i < end; i += griddim.x * BLOCK_DIM){
-        scan_out[i] = scan_in[i];
+    @builtin(local_invocation_id) threadid: vec3<u32>,
+    @builtin(workgroup_id) wgid: vec3<u32>) {
+    let end = (wgid.x + 1u) * VEC_TILE_SIZE;
+    if(wgid.x < params.work_tiles - 1u){
+        for(var i = threadid.x + wgid.x * VEC_TILE_SIZE; i < end; i += BLOCK_DIM){
+            scan_out[i] = scan_in[i];
+        }
+    }
+
+    if(wgid.x == params.work_tiles - 1u){
+        for(var i = threadid.x + wgid.x * VEC_TILE_SIZE; i < end; i += BLOCK_DIM){
+            if(i < params.vec_size){
+                scan_out[i] = scan_in[i];
+            }
+        }
     }
 }

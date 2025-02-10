@@ -613,7 +613,7 @@ impl PassTrait for MemcpyPass {
             &tester.gpu_context.query_set,
             &tester.gpu_shaders.memcpy,
             com_encoder,
-            1024,
+            tester.work_tiles,
             0u32,
         );
     }
@@ -876,7 +876,7 @@ impl Tester {
                     self.gpu_buffers.timestamp_readback.unmap();
                     total_time += t;
                     if args.should_record {
-                        data.time[(i - 1) as usize] = self.size as f64 / t as f64;
+                        data.time[(i - 1) as usize] = t as f64;
                     }
                 }
 
