@@ -172,10 +172,7 @@ Although our goal is to create a fully portable and highly performant scan imple
 
 \section{Background}
 \subsection{Virtualization and Scheduling in the GPU programming model}
-Contemporary GPUs are hierarchically organized, massively parallel processors designed to prioritize throughput over latency. (one sentence on thread hierarchy maybe). As comprehensive descriptions of the GPU programming model~\cite{} already exist, we focus on the aspects most relevant to this work: scheduling and synchronization.
-
-\raph{I think "NVIDIA Tesla: A Unified Graphics and Computing Architecture" Lindholm 2008 might be a good choice for the above cite.}
-\john{I have historically used that Lindholm reference for the GPU hardware, but for the programming model I have used Nickolls, ``Scalable parallel programming with CUDA'' (ACM Queue, Mar/Apr 2008).}
+Contemporary GPUs are hierarchically organized, massively parallel processors designed to prioritize throughput over latency. As comprehensive descriptions of the GPU programming model~\cite{10.1145/1365490.1365500} already exist, we focus on the aspects most relevant to this work: scheduling and synchronization.
 
 On GPU hardware, scheduling is divided into two levels: a \emph{workgroup} scheduler, which manages kernel launches and maps virtual processors, workgroups, to physical processors, \emph{multiprocessors}, and a \emph{subgroup} scheduler, responsible for selecting which of the currently \emph{occupant} subgroups on a multiprocessor for execution. The GPU programming model virtualizes processors to ensure GPU programs---\emph{kernels}---remain portable across hardware with differing physical resources. Effective virtualization requires \emph{oversubscription}, a programming paradigm where tasks are (over)partitioned in such a way that kernels request more virtual processors than are physically available. As a result, a single multiprocessor may host multiple workgroups simultaneously. However, as a consequence of virtualization, the developer relinquishes control over the order in which workgroups are launched, and once a workgroup begins execution on a multiprocessor, it must run to completion and cannot context switch.
 
@@ -225,7 +222,7 @@ Merrill and Grimshaw~\cite{Merrill2009} introduced \emph{workgroup raking} to re
 Breitbart~\cite{10.5555/2031978.2032029} applied Gupta et al.'s \emph{Persistent-Threads}~\cite{gupta2012} to scan, eliminating kernel launch overheads. Recognizing that raking naturally aligns with this paradigm, Breitbart's method statically \emph{discovers} the workgroup occupancy and launches exactly $o$ kernels. Since multiprocessors are not oversubscribed, workgroups persist for the entire kernel duration, enabling synchronization at an atomics-based inter-workgroup barrier without context switching. While global memory movement remains $O(3n)$, this consolidates the scan into a single kernel, minimizing launch overheads.
 
 \subsubsection{Chained-Scan, Stream-Scan}
-First introduced by Yan et al.~\cite{10.1145/2442516.2442539} in \emph{Stream-Scan}, the key innovation of the \emph{Chained-Scan} architecture lies in its hybridization of parallel and serial strategies: achieving parallelism at the intra-workgroup level while minimizing global data movement through serial scan operations at the inter-workgroup level. Instead of using kernel launches as inter-workgroup synchronization points, \emph{Chained-Scans} launch a single kernel that assigns work tiles in a serial order to workgroups, utilizing atomics and bit-packed status flags to ensure coherent views of data. To enforce this serial ordering, work tiles are dynamically assigned using atomic increment operations, rather than arbitrary assignment based on virtualized workgroup indices. This shifts dependency resolution from explicit synchronization via barrier-like structures to implicit synchronization via access order. As a result, each element is read and written exactly once, achieving the theoretical minimum of $2n$.
+First introduced by Yan et al.~\cite{10.1145/2442516.2442539} in \emph{Stream-Scan}, the key innovation of the \emph{Chained-Scan} architecture lies in its hybridization of parallel and serial strategies: achieving parallelism at the intra-workgroup level while minimizing global data movement through serial scan operations at the inter-workgroup level. Instead of using kernel launches as inter-workgroup synchronization points, \emph{Chained-Scans} launch a single kernel that assigns work tiles in a serial order to workgroups, utilizing atomics and bit-packed status flags to ensure coherent views of data. To enforce this serial ordering, work tiles are dynamically assigned using atomic increment operations, rather than arbitrary assignment based on virtualized workgroup indices. This shifts dependency resolution from explicit synchronization via barrier-like structures to implicit synchronization via access order. As a result, each element is read and written exactly once, achieving the theoretical minimum of $O(2n)$.
 
 In any \emph{Chained-Scan}, once a workgroup computes its local scan, it must complete two objectives: communicate its reduction to successor tiles and resolve dependencies by incorporating the reductions of all preceding tiles. This process, which we refer to as \emph{Chained Propagation}, defines the set of inter-workgroup techniques that facilitate dependency resolution. In \emph{StreamScan}, these two objectives are combined into a single phase, where each workgroup waits for its immediate predecessor to complete, ingests the predecessor's reduction, and posts the resulting \emph{inclusive} reduction for its immediate successor to consume. This approach depends on a \emph{forward progress guarantee} of the GPU's execution model. Given such a guarantee, the predecessor will eventually produce a result and broadcast it. On devices lacking such a guarantee, the workgroup may wait indefinitely, resulting in deadlock.
 
@@ -273,7 +270,7 @@ Although the serial assignment of work tiles ensures that predecessor tiles are 
 
 \raph{Answering John's question here. Short answer no. One mental model that would illustrate this is a workgroup being preempted from a multiprocessor for system reasons, for example to perform compositing for scanout. I brought this up with a GPU engineer and they said this wasn't actually the reason for lack of FPG on their hardware, but wasn't able to explain the true story for proprietary reasons. In any case, while I am fine to a large extent talking operationally about scheduling etc, at the end of the day you need a formal model that tells you which computations will terminate. That's what Tyler's work is about and I think it's best to cite it and not try to re-litigate it, especially in oversimplified form. Also, taking another look at "Specifying and Testing," I notice that they use "livelock" but not deadlock to describe situations where system progress depends on FPG. I'm not finding a cite for this now, but if memory serves, a deadlock condition is one in which no progress is possible under *any* scheduling condition, while in livelock there is some scheduler condition that could resolve the livelock, but it is not resolved under all such conditions.} \john{The reason that I ask this question is that I take the perspective of a reviewer who decides, oh, I can solve this FPG problem by doing something simple, like ``scheduling only one workgroup per processor''. The reviewer, of course, doesn't actually implement this, but it totally kills the paper when a reviewer gets it into his/her head that there is another way to go about this and why didn't we study THAT way, reject, go back and incorporate my amazing idea. We need to explicitly close the door emphatically in the paper to obvious, simple, unworkable solutions; we can't give reviewers any headroom to substitute their own judgment when we know better.}
 
-For example, consider a scan operation requiring two workgroups on a GPU with a single multiprocessor. Both workgroups are co-resident, but the multiprocessor has only one scheduling unit, which lacks FPG\@. Both workgroups launch and acquire their respective work tiles. The workgroup responsible for \emph{Work Tile 1} finishes first and begins spinning, repeatedly querying the memory address for the reduction of \emph{Work Tile 0}. However, because the scheduler lacks FPG, it continues scheduling \emph{Work Tile 1}, leaving \emph{Work Tile 0} starved and unable to complete its reduction. As a result, \emph{Work Tile 1} spins indefinitely, eventually triggering \emph{timeout detection and recovery}\footnote{\emph{Timeout detection and recovery} is} (TDR) and crashing the host program.
+For example, consider a scan operation requiring two workgroups on a GPU with a single multiprocessor. Both workgroups are co-resident, but the multiprocessor has only one scheduling unit, which lacks FPG\@. Both workgroups launch and acquire their respective work tiles. The workgroup responsible for \emph{Work Tile 1} finishes first and begins spinning, repeatedly querying the memory address for the reduction of \emph{Work Tile 0}. However, because the scheduler lacks FPG, it continues scheduling \emph{Work Tile 1}, leaving \emph{Work Tile 0} starved and unable to complete its reduction. As a result, \emph{Work Tile 1} spins indefinitely, potentially triggering \emph{timeout detection and recovery}\footnote{Operating systems have different mechanisms for handling unresponsive programs. We borrow here Window's terminology. On Windows, the Timeout Detection and Recovery system resets the GPU after 2 seconds by default. iOS has a timeout watchdog, which, interestingly, does not terminate a spinning kernel. On Linux, the behavior depends on the GPU driver.} (TDR) and crashing the host program.
 
 \subsection{Why is reliance on Forward Progress Guarantees a Portability Problem?}
 The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing shows that, at best, running \emph{Chained-Scan} without FPG results in severe performance degradation, and at worst, risks TDR and program crashes.
@@ -501,13 +498,12 @@ Without some other mechanism, the requirement to pack tile state and data into a
 
 A key innovation of this paper is to \emph{split} the reduced values into multiple atomics, each carrying its own copy of the tile state. The message is received when relaxed atomic loads of all the parts agree on their tile state. This way, the payload is reconstructed intact, even in the absence of any guarantees from the memory model stronger than relaxed atomics.
 
-In particular, we use two or four 32-bit values, splitting the reduction value into 16-bit segments while reserving the two most significant bits of each 32-bit value to encode the tile state.
 \begin{figure}[h!]
   \centering
   \includegraphics[width=\linewidth]{graphics/split.pdf}
 \end{figure}
 
-To accommodate the split values during \emph{Chained Propagation}, we use two or four threads from the first subgroup, leveraging subgroup \emph{ballot} to verify state consistency, and subgroup \emph{shuffle} to join and split reductions. With one thread per 16 bits and a minimum subgroup size of four in WebGPU, this method supports both 32-bit and 64-bit values, enabling 64-bit scans without 64-bit atomics or fences.\footnote{Although native 64-bit values are not currently supported by the WebGPU specification, their future inclusion is anticipated.}
+In particular, we use two or four 32-bit values, splitting the reduction value into 16-bit segments while reserving the two most significant bits of each 32-bit value to encode the tile state. Although this could also be accomplished with shared memory (and barriers), as an optimization, we use two or four threads from the first subgroup, leveraging subgroup \emph{ballot} to verify state consistency, and subgroup \emph{shuffle} to join and split reductions. With one thread per 16 bits and a minimum subgroup size of four in WebGPU, this method supports both 32-bit and 64-bit values, enabling 64-bit scans without 64-bit atomics or fences.\footnote{Although native 64-bit values are not currently supported by the WebGPU specification, their future inclusion is anticipated.}
 
 Fallbacks require a tile state representation and an atomic operation that can safely transition a tile to \emph{Ready} without overwriting a more advanced state. When an update attempt is made, a blocking tile may be in any of the three states due to either of two scenarios: (1) a false-positive fallback on a tile that transitions to \emph{Ready} or \emph{Inclusive} before fallback completion, or (2) another workgroup completing its fallback first, leaving the tile in \emph{Ready}. If the tile state is \emph{Inclusive} then the write must be skipped, especially because races in writes for the parts may leave the tile permanently in an unreadable state. Thus, a simple atomic store is not suitable. An atomic compare-and-swap would have the correct semantics, but WebGPU lacks this primitive (it does have \texttt{atomicCompareExchangeWeak}, which could possibly be made to work but makes reasoning about correctness and performance more difficult). Instead, we encode the tile state in the most significant bits of the atomic value and enforce a strict state ordering: \emph{Inclusive} $>$ \emph{Ready} $>$ \emph{Not Ready}. This allows an \texttt{atomicMaximum}, which successfully updates to a more advanced state but prevents a state regression, to correctly perform updates.
 
@@ -521,11 +517,12 @@ We configure workgroups with a size $w = 256$ threads, where each thread process
   \small
   \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}} l l c r r}
     \toprule
-    Vendor & Device Name & OBE? & Occupancy & Subgroup Size \\
+    Vendor & Device Name & OBE & Occupancy & Subgroup Size \\
     \midrule
-    Intel  & HD Graphics 620       & \textbf{Yes} & 9   & 8--32  \\
+    Intel  & HD Graphics 620        & \textbf{Yes} & 9   & 8--32  \\
     ARM    & Mali-G78 MP20          & \textbf{Yes} & 40  & 16  \\
-    Apple  & M1 Pro Max             & \textbf{No}  & 64  & 32  \\
+    Apple  & M3                     & \textbf{No}  & 80  & 32  \\
+    Apple  & M1 Max                 & \textbf{No}  & 160 & 32  \\
     NVIDIA & GeForce RTX 2080 Super & \textbf{Yes} & 192 & 32  \\
     AMD    & Radeon RX 7900 XT      & \textbf{Yes} & 420 & 32--64  \\
     \bottomrule
@@ -536,14 +533,14 @@ We configure workgroups with a size $w = 256$ threads, where each thread process
 
 \subsection{Performance Comparison}
 \subsubsection{Performance Versus Contemporary Implementations:}
-We first compare \emph{Decoupled Fallback} (\emph{CSDLDF}) to the \emph{Decoupled Lookback} (\emph{CSDL}) implementation found in NVIDIA’s \emph{CUB} library, using the 2080 Super only. To assess the impact of differing APIs, we also implement \emph{CSDLDF} in CUDA.\footnote{Due to WebGPU’s 128MB storage buffer limit, our maximum test size is limited to $2^{25}$ 32-bit elements.}
+We first compare \emph{Decoupled Fallback} (\emph{CSDLDF}) to the \emph{Decoupled Lookback} (\emph{CSDL}) implementation found in NVIDIA’s CUB library, using the 2080 Super only. To assess the impact of differing APIs, we also implement \emph{CSDLDF} in CUDA.\footnote{Due to WebGPU’s 128MB storage buffer limit, our maximum test size is limited to $2^{25}$ 32-bit elements.}
 
-Cross-API comparisons remain challenging, as despite being nearly identical at a high level, the CUDA implementation consistently outperforms its WebGPU counterpart. Additionally, the performance cost of \emph{Decoupled Fallback} is most evident in our CUDA implementation when the entire input fits within the 2080 Super’s 4MB L2 cache, where increased synchronization and compute overhead slightly reduce throughput. However, at larger input sizes, where memory accesses extend beyond the cache, \emph{CSDLDF} achieves parity with \emph{CUB}.
+Cross-API comparisons remain challenging, as despite being nearly identical at a high level, the CUDA implementation consistently outperforms its Dawn counterpart. Additionally, the performance cost of \emph{Decoupled Fallback} is most evident in our CUDA implementation when the entire input fits within the 2080 Super’s 4MB L2 cache, where increased synchronization and compute overhead slightly reduce throughput. However, at larger input sizes, where memory accesses extend beyond the cache, \emph{CSDLDF} achieves parity with CUB.
 
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{graphics/cuda_plot.pdf}
-  \caption{Performance versus \emph{CUB} (NVIDIA 2080 Super)}
+  \caption{Performance versus CUB (NVIDIA 2080 Super)}
 \end{figure}
 
 \subsubsection{Same-API Performance Versus Baseline Measures}
@@ -551,38 +548,39 @@ We next compare \emph{CSDLDF} against two key benchmarks: \emph{Memcpy}\textdagg
 
 \begin{table*}
   \centering
-  \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l r r r r r}
+  \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l r r r r r r}
     \toprule
-    Metric & Intel HD620 & ARM Mali-G78 MP20 & Apple M1 Pro Max & Nvidia 2080 Super & AMD 7900 XT \\
+    Metric & Intel HD620 & ARM Mali-G78 MP20 & Apple M3 & Apple M1 Max & Nvidia 2080 Super & AMD 7900 XT \\
     \midrule
-    H-Mean \emph{Memcpy} (32-bit ele/sec)  & 1.498e9   & 106.663e9 & 54.203e9  & 54.203e9  & 71.190e9  \\
-    H-Mean \emph{CSDLDF} (32-bit ele/sec)   & 1.487e9   & 112.430e9 & 53.256e9  & 53.256e9  & 95.737e9  \\
-    H-Mean \emph{RTS} (32-bit ele/sec)      & 1.060e9   & 82.302e9  & 35.709e9  & 35.709e9  & 62.868e9  \\
-    \emph{CSDLDF}/\emph{Memcpy} (\%)       & 99.2\%    & 105.4\%   & 98.3\%    & 98.3\%    & 134.5\%   \\
-    \emph{CSDLDF}/\emph{RTS} (\%)          & 140.2\%   & 136.6\%   & 149.1\%   & 149.1\%   & 152.3\%   \\
-    Avg Spins per Wg    & 0.306    & 1.380    & 0.418    & 0.418    & 0.133    \\
-    Avg Lookback Length per Wg  & 1.725    & 3.510    & 13.139   & 13.139   & 20.867   \\
-    Avg Total Fallbacks Initiated      & 260.364   & 2202.045  & 88.384   & 88.384   & 10.127   \\
-    Avg Total Successful Insertions    & 6.084     & 57.875    & 1.205    & 1.205    & 1.001    \\
+    Avg \emph{Memcpy} (32-bit ele/sec $\cdot 10^9$)  & 1.50   & 2.48  & 10.25  & 38.62  & 54.39  & 72.28  \\
+    Avg \emph{CSDLDF} (32-bit ele/sec $\cdot 10^9$)   & 1.49   & 2.79  & 10.22  & 38.84  & 53.29  & 94.60  \\
+    Avg \emph{RTS} (32-bit ele/sec $\cdot 10^9$)      & 1.06   & 2.02  & 6.81   & 25.13  & 35.90  & 61.49  \\
+    \emph{CSDLDF}/\emph{Memcpy}       & 99.1\%    & 112.8\%  & 99.8\%    & 100.6\%   & 98.0\%    & 130.9\%   \\
+    \emph{CSDLDF}/\emph{RTS}          & 140.2\%   & 138.5\%  & 150.2\%   & 154.5\%   & 148.4\%   & 153.8\%   \\
+    Avg Spins per Wg    & 0.305    & 1.477    & 0.606    & 0.604    & 0.419    & 0.148    \\
+    Avg Lookback Length per Wg  & 1.726    & 3.537    & 3.415    & 10.782   & 13.046   & 20.722   \\
+    Avg Total Fallbacks Initiated      & 254.662   & 2504.704  & 365.546   & 990.962   & 86.400   & 9.308   \\
+    Avg Total Successful Insertions    & 6.170     & 122.436   & 4.612     & 0.012    & 0.284    & 0.020    \\
     \bottomrule
   \end{tabular*}
-  \caption{MALI ABSOLUTE SPEED WRONG!, \emph{Decoupled Fallback} performance, 32-bit Inclusive Prefix Sum, Input Size $\mathbf{2^{25}}$. \john{I would label metrics as ``H-Mean \emph{Memcpy} (32-bit ele/sec $\cdot 10^9$)'' and then leave the exponents out of the main table.}\john{Separately, h-mean is the right summary statistic \emph{if} the distribution is Gaussian, which it almost certainly is not. Like most measurements of this type, it's much more likely log-normal. I am influenced here by \url{https://lemire.me/blog/2023/04/06/are-your-memory-bound-benchmarking-timings-normally-distributed/}.}}
+  \caption{\emph{Decoupled Fallback} performance, 32-bit Inclusive Prefix Sum, Input Size $\mathbf{2^{25}}$}
   \label{tab:results}
 \end{table*}
 
-As shown in Table~\ref{tab:results}, with the exception of the ARM Mali, \emph{CSDLDF} achieves at least a $\sim$40\% speedup over \emph{RTS} across all tested devices. Since \emph{Memcpy} is purely memory bandwidth bound, \emph{CSDLDF} should ideally match its throughput. This holds across most devices, except for the AMD 7900 XT, where \emph{CSDLDF} outperforms \emph{Memcpy}, suggesting that the additional compute latency counterintuitively improves memory access patterns by reducing paging. \john{I have no idea what this previous phrase means.} \thomas{In my head, if you read from location A, and then write immediately to B, you need room in your cache for A and B. If you read, do just the right amount of work, then write B, you only need to hold A or B? Not sure if this is correct.} On the ARM Mali, \emph{CSDLDF} appears to underperform, achieving only a 36\% speedup instead of the expected 50\%. However, as its performance is nearly identical to \emph{Memcpy}, this indicates that the implementation is memory-bandwidth-bound, limiting further gains.
+As shown in Table~\ref{tab:results}, \emph{CSDLDF} achieves at least a $\sim$40\% speedup over \emph{RTS} across all tested devices—closely approaching the theoretically expected $O(3n)/O(2n)$ 50\% speedup, except on the ARM Mali. Since \emph{Memcpy} is purely memory-bandwidth-bound, \emph{CSDLDF} should ideally match its throughput. This holds across most devices, except for the AMD 7900 XT and ARM Mali, where \emph{CSDLDF} outperforms \emph{Memcpy}, suggesting that the additional compute latency counterintuitively improves memory access patterns by reducing paging. \john{I have no idea what this previous phrase means.} \thomas{In my head, if you read from location A, and then write immediately to B, you need room in your cache for A and B because the workgroup doesn't execute in lockstep. If you read, do just the right amount of work, then write B, you only need to hold A or B because the compute latency ensures that all the work from A is done before you get to B. Not sure if this is correct.}On the ARM Mali, \emph{CSDLDF} appears to underperform, achieving only a 36\% speedup instead of the expected 50\%. However, as its performance is nearly identical to \emph{Memcpy}, this indicates that the implementation is memory-bandwidth-bound, limiting further gains.  
 
 \subsection{Decoupled Fallback Statistics}
-To better understand how devices with differing schedulers interact with \emph{CSDLDF}, we also collect a number of statistics during its execution:
+To better understand how differing devices interact with \emph{CSDLDF}, we also collect a number of statistics during its execution:
 \begin{itemize}
-  \item \textbf{Spins per Workgroup:}
-  \item \textbf{Lookback Length per Workgroup:}
-  \item \textbf{Total Fallbacks Initiated:}
-  \item \textbf{Total Successful Insertions:}
+  \item \textbf{Spins per Workgroup:} How many times does a workgroup make a waiting spin?
+  \item \textbf{Lookback Length per Workgroup:} How many work tiles does a workgroup traverse to complete \emph{Chained-Propagation}?
+  \item \textbf{Total Fallbacks Initiated:} What is the total number of fallback operations initiated across all workgroups?
+  \item \textbf{Total Successful Insertions:} What is total number of fallback operations that successfully update a blocking (or late) tile to \emph{Ready}?
 \end{itemize}
+Despite significantly different absolute occupancies, the number of waiting spins remains consistent across devices. Likewise, lookback length is stable and remains well below the theoretical occupancy bound. Expressed as a percentage of occupancy, it remains under 10\% for all devices, except for the Intel HD620, where its elevated value is likely an artifact of its low absolute occupancy. Most notably, the devices lacking FPG---Apple M3 and M1 Max---do not exhibit significantly higher successful insertion rates than the others, suggesting that true deadlocking is a rare occurrence.
 
 \subsection{Simulated Blocking}
-To demonstrate the resilience of our technique under fallback rates significantly higher than those observed organically on devices, we intentionally force fallbacks by omitting the posting of work tile reductions. Starting with infrequent omissions---1 in 512 workgroups---we progressively increase the rate to near-continuous levels, reaching 1 in 2 workgroups.
+To demonstrate the resilience of our technique to unfair schedulers, we simulate fallback rates significantly higher than those observed organically by intentionally forcing fallbacks through the omission of work tile reductions. Beginning with infrequent omissions---1 in 512 work tiles---we progressively increase the rate to near-continuous levels, reaching 1 in 2 work tiles.
 \begin{figure*}[t]
   \centering
   \begin{subfigure}[t]{0.48\linewidth}
@@ -617,18 +615,20 @@ To demonstrate the resilience of our technique under fallback rates significantl
   \label{fig:vertical_images}
 \end{figure*}
 
-In Figure~\ref{fig:fallbacks_initiated}, we measure the number of fallbacks proportional to the number of workgroups launched, and verify that we are indeed inducing fallbacks. In Figure~\ref{fig:total_spins} we measure \thomas{this should be spins per workgroup it's a better metric}. In Figure~\ref{fig:lookback_length} we see that. Finally, in Figure~\ref{fig:execution_time}, we can see that, even when \emph{half} the workgroups are deadlocking, \emph{Decoupled-Fallback} still achieves speeds of . . .
-
+As shown in Figure~\ref{fig:execution_time}, performance relative to a no-omission baseline remains above 85\% even at a 100\% fallback rate across all devices—except for the Intel HD620, where only a 25\% fallback rate is induced. Notably, this performance level remains well above the equivalent \emph{RTS} performance of 66\%. While Figures~\ref{fig:fallbacks_initiated} and \ref{fig:total_spins} confirm that we are inducing fallbacks, this test primarily measures the impact of increasing fallback operations rather than true blocking behavior. The finer details of this distinction are discussed next.
 \section{Discussion}
-
-\subsection{Trade-offs}
-
 \subsection{Limits on Speed-of-Light Performance}
-There are a number of factors which may preclude speed-of-light performance, but most salient is the fairness of the scheduling model. In \emph{Decoupled-Fallback}, a work tile which is late due to unfairness is indistinguishable from one which is blocking, so as a scheduler becomes increasingly unfair, it incurs an increasing number of redundant fallbacks. Consider a hardware with a workgroup occupancy denoted by $o$, and let $f$ represent the probability that a fallback operation occurs at a particular lookback step. Because the number of lookback steps is bounded by $o$, the expected number of fallback operations is approximately $fo$. This results in a factor of $fo$ increase in global memory reads and a factor of $fo\log{n}$ increase in work.
 
-This increased sensitivity to fairness exacerbates existing issues which negatively impact the performance of previous scan architectures, namely lack of compute, and slow atomic update latency. On hardware that lacks sufficient compute power to be memory-bandwidth bound, the additional work incurred by redundant fallback reductions is particularly deleterious. High atomic update latency further compounds the problem: as inter-workgroup communication time grows, the minimum delay before updates become visible to dependent workgroups also increases. This, in turn, raises the number of lookback steps that may be needed and potentially leads to redundant fallbacks.
+In true blocking scenarios, the stalled workgroup is starved of progress, but execution resources are not lost; rather, they are redistributed to other workgroups. As a result, we would expect lookback lengths to be longer than those observed in our simulation.
 
 \thomas{Somewhere in here is perfect for Raph's commentary on the speed of atomics on different hardware. Once we have it, we can retool this section around it.}
+
+\subsection{Trade-offs}
+Decoupled Fallback introduces several tradeoffs that must be considered: (1) Without a memory fence, the scan cannot be performed in place and requires a separate output buffer to prevent false-positive fallback operations on post-scanned values, as the tile state may not update before the scan values. (2) For monoids larger than 64 bits, multiple subgroups are required, increasing synchronization overhead due to the need for shared memory and barriers. (3) In certain in-situ compaction algorithms where fallback work-tiles cannot be easily reduced and must be held in registers, Decoupled Fallback may reduce occupancy. (4) Additionally, in compute-bound in-situ compaction algorithms, the cost of fallbacks may outweigh the savings from reduced global memory traffic. (5) Finally, because the control flow of \emph{Decoupled Fallback} introduces barriers latency incurred during lookback cannot be hidden by workgroup computation.
+
+\subsection{Future Work}
+
+\subsection{Conclusion}
 
 \begin{acks}
 \end{acks}
@@ -647,7 +647,8 @@ This increased sensitivity to fairness exacerbates existing issues which negativ
     \midrule
     Intel HD620 (Single-/Dual-Channel)    & 17.1 / 34.1      & 2.13e9 / 4.26e9 \\
     ARM Mali-G78 MP20 / Pixel 6a (Tensor) & 51.2             & 6.40e9          \\
-    Apple M1 Pro Max                      & 200              & 25.0e9          \\
+    Apple M3                              & 102.4            & 12.8e9          \\
+    Apple M1 Max                          & 409.6            & 51.2e9          \\
     Nvidia 2080 Super                     & 496              & 62.0e9          \\
     AMD 7900 XT                           & 800              & 100.0e9         \\
     \bottomrule
