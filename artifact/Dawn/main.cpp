@@ -68,6 +68,16 @@ struct DataStruct {
     std::vector<double> lookbackLength;
     std::vector<uint32_t> fallbacksInitiated;
     std::vector<uint32_t> successfulInsertions;
+
+    DataStruct(const TestArgs& args) {
+        if(args.shouldRecord){
+            time.resize(args.batchSize);
+            totalSpins.resize(args.batchSize);
+            lookbackLength.resize(args.batchSize);
+            fallbacksInitiated.resize(args.batchSize);
+            successfulInsertions.resize(args.batchSize);
+        }
+    }
 };
 
 void GetGPUContext(GPUContext* context, uint32_t timestampCount) {
@@ -96,7 +106,7 @@ void GetGPUContext(GPUContext* context, uint32_t timestampCount) {
             adaptPromise.set_value();
         });
     std::future<void> adaptFuture = adaptPromise.get_future();
-    while (adaptFuture.wait_for(std::chrono::microseconds(100)) ==
+    while (adaptFuture.wait_for(std::chrono::nanoseconds(100)) ==
            std::future_status::timeout) {
         instance.ProcessEvents();
     }
@@ -153,7 +163,7 @@ void GetGPUContext(GPUContext* context, uint32_t timestampCount) {
             devPromise.set_value();
         });
     std::future<void> devFuture = devPromise.get_future();
-    while (devFuture.wait_for(std::chrono::microseconds(100)) ==
+    while (devFuture.wait_for(std::chrono::nanoseconds(100)) ==
            std::future_status::timeout) {
         instance.ProcessEvents();
     }
@@ -403,7 +413,7 @@ void CreateShaderFromSource(const GPUContext& gpu, const GPUBuffers& buffs,
             promise.set_value();
         });
     std::future<void> future = promise.get_future();
-    while (future.wait_for(std::chrono::microseconds(100)) ==
+    while (future.wait_for(std::chrono::nanoseconds(100)) ==
            std::future_status::timeout) {
         gpu.instance.ProcessEvents();
     }
@@ -486,7 +496,7 @@ void QueueSync(const GPUContext& gpu) {
             promise.set_value();
         });
     std::future<void> future = promise.get_future();
-    while (future.wait_for(std::chrono::microseconds(100)) ==
+    while (future.wait_for(std::chrono::nanoseconds(100)) ==
            std::future_status::timeout) {
         gpu.instance.ProcessEvents();
     }
@@ -526,7 +536,7 @@ void ReadbackSync(const GPUContext& gpu, wgpu::Buffer* dstReadback,
         });
 
     std::future<void> future = promise.get_future();
-    while (future.wait_for(std::chrono::microseconds(100)) ==
+    while (future.wait_for(std::chrono::nanoseconds(100)) ==
            std::future_status::timeout) {
         gpu.instance.ProcessEvents();
     }
@@ -725,16 +735,7 @@ void RecordToCSV(const TestArgs& args, const DataStruct& data,
 }
 
 void Run(std::string testLabel, const TestArgs& args,
-         uint32_t (*MainPass)(const TestArgs&, wgpu::CommandEncoder*)) {
-    DataStruct data;
-    if (args.shouldRecord) {
-        data.time.resize(args.batchSize);
-        data.totalSpins.resize(args.batchSize);
-        data.lookbackLength.resize(args.batchSize);
-        data.fallbacksInitiated.resize(args.batchSize);
-        data.successfulInsertions.resize(args.batchSize);
-    }
-
+         uint32_t (*MainPass)(const TestArgs&, wgpu::CommandEncoder*), DataStruct& data) {
     uint32_t testsPassed = 0;
     uint64_t totalTime = 0ULL;
     double totalSpins = 0;
@@ -834,37 +835,145 @@ void Run(std::string testLabel, const TestArgs& args,
             ((uint64_t)args.size * (uint64_t)(args.batchSize)) / dTime;
         printf("Estimated speed %e ele/s\n", speed);
     }
-
-    if (args.shouldRecord) {
-        RecordToCSV(args, data, testLabel);
-    }
 }
 
 enum TestType {
     Csdl,
     Csdldf,
     Full,
-    Size,
+    SizeCsdldf,
+    SizeMemcpy,
 };
 
+void TestMemcpy(std::string deviceName, const TestArgs& args) {
+    TestArgs memcpyArgs = args;
+    memcpyArgs.shouldValidate = false;
+    DataStruct data(memcpyArgs);
+    Run(deviceName + "Memcpy", memcpyArgs, Memcpy, data);
+    if(memcpyArgs.shouldRecord) {
+        RecordToCSV(memcpyArgs, data, deviceName + "Memcpy");
+    }
+}
+
+void TestCSDL(std::string deviceName, const TestArgs& args) {
+    DataStruct data(args);
+    Run(deviceName + "CSDL", args, CSDL, data);
+    if (args.shouldRecord) {
+        RecordToCSV(args, data, deviceName + "CSDL");
+    }
+}
+
+void TestCSDLDF(std::string deviceName, const TestArgs& args) {
+    DataStruct data(args);
+    GetOccupancySync(args);
+    Run(deviceName + "CSDLDF", args, CSDLDF, data);
+    if (args.shouldRecord) {
+        RecordToCSV(args, data, deviceName + "CSDLDF");
+    }
+}
+
+void TestFull(std::string deviceName, uint32_t MAX_SIMULATE, const TestArgs& args) {
+    std::vector<DataStruct> data(MAX_SIMULATE + 3, DataStruct(args));
+
+    DataStruct& rtsData = data[0];
+    DataStruct& csdlDFData = data[1];
+    DataStruct& csdlDFStatsData = data[2];
+
+    Run(deviceName + "RTS", args, RTS, rtsData);
+    GetOccupancySync(args);
+
+    Run(deviceName + "CSDLDF", args, CSDLDF, csdlDFData);
+
+    TestArgs simArgs = args;
+    simArgs.shouldGetStats = true;
+    InitializeUniforms(simArgs.gpu, &simArgs.buffs, simArgs.size, simArgs.workTiles, 0xffffffff);
+    Run(deviceName + "CSDLDF_Stats", args, CSDLDFSimulate, csdlDFStatsData);
+
+    for (uint32_t i = 0; i <= MAX_SIMULATE; ++i) {
+        uint32_t mask = (1 << i) - 1;
+        InitializeUniforms(simArgs.gpu, &simArgs.buffs, simArgs.size, simArgs.workTiles, mask);
+        Run(deviceName + "CSDLDF_" + std::to_string(1 << i), args, CSDLDFSimulate, data[3 + i]);
+    }
+
+    if (args.shouldRecord) {
+        RecordToCSV(args, rtsData, deviceName + "RTS");
+        RecordToCSV(args, csdlDFData, deviceName + "CSDLDF");
+        RecordToCSV(args, csdlDFStatsData, deviceName + "CSDLDF_Stats");
+
+        for (uint32_t i = 0; i <= MAX_SIMULATE; ++i) {
+            RecordToCSV(simArgs, data[3 + i], deviceName + "CSDLDF_" + std::to_string(1 << i));
+        }
+    }
+}
+
+void TestSize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& args) {
+    const uint32_t minPow = 10;
+    const uint32_t maxPow = 25;
+    const uint32_t numSizeTests = (maxPow - minPow + 1);
+    std::vector<DataStruct> dataRecords(numSizeTests, DataStruct(args));
+
+    for (uint32_t i = minPow; i <= maxPow; ++i) {
+        uint32_t currentSize = 1u << i;
+        uint32_t currentWorkTiles = (currentSize + PART_SIZE - 1) / PART_SIZE;
+
+        TestArgs localArgs = args;
+        localArgs.size = currentSize;
+        localArgs.workTiles = currentWorkTiles;
+        InitializeUniforms(localArgs.gpu, &localArgs.buffs, currentSize, currentWorkTiles, 0);
+
+        // Run CSDLDF test
+        Run(deviceName + "CSDLDF_Size_" + std::to_string(currentSize), localArgs, CSDLDF, dataRecords[i - minPow]);
+    }
+
+    if (args.shouldRecord) {
+        for (uint32_t i = minPow; i <= maxPow; ++i) {
+            uint32_t currentSize = 1u << i;
+            RecordToCSV(args, dataRecords[i - minPow], deviceName + "CSDLDF_Size_" + std::to_string(currentSize));
+        }
+    }
+}
+
+void TestMemcpySize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& args) {
+    const uint32_t minPow = 10;
+    const uint32_t maxPow = 25;
+    const uint32_t numSizeTests = (maxPow - minPow + 1);
+    std::vector<DataStruct> memcpyDataRecords(numSizeTests, DataStruct(args));
+
+    for (uint32_t i = minPow; i <= maxPow; ++i) {
+        uint32_t currentSize = 1u << i;
+        uint32_t currentWorkTiles = (currentSize + PART_SIZE - 1) / PART_SIZE;
+
+        TestArgs memcpyArgs = args;
+        memcpyArgs.size = currentSize;
+        memcpyArgs.shouldValidate = false;
+        memcpyArgs.workTiles = currentWorkTiles;
+        InitializeUniforms(memcpyArgs.gpu, &memcpyArgs.buffs, currentSize, currentWorkTiles, 0);
+
+        // Run Memcpy test
+        Run(deviceName + "Memcpy_Size_" + std::to_string(currentSize), memcpyArgs, Memcpy, memcpyDataRecords[i - minPow]);
+    }
+
+    if (args.shouldRecord) {
+        for (uint32_t i = minPow; i <= maxPow; ++i) {
+            uint32_t currentSize = 1u << i;
+            RecordToCSV(args, memcpyDataRecords[i - minPow], deviceName + "Memcpy_Size_" + std::to_string(currentSize));
+        }
+    }
+}
+
+
 auto printUsage = []() {
-    std::cerr << "Usage: <TestType: \"csdl\"|\"csdldf\"|\"full\"> "
+    std::cerr << "Usage: <TestType: \"csdl\"|\"csdldf\"|\"full\"|\"sizecsdldf\"|\"sizememcpy\"> "
                  "[\"record\"] [deviceName]"
               << std::endl;
 };
 
 int main(int argc, char* argv[]) {
-    // We allow:
-    //   1) <TestType>                      e.g. "csdl"
-    //   2) <TestType> record               e.g. "csdl record"
-    //   3) <TestType> record <deviceName>  e.g. "csdl record myDevice"
-
     if (argc < 2 || argc > 4) {
         printUsage();
         return EXIT_FAILURE;
     }
 
-    // Parse the test type
     TestType testType;
     std::string testTypeStr = argv[1];
     if (testTypeStr == "csdl") {
@@ -873,15 +982,15 @@ int main(int argc, char* argv[]) {
         testType = Csdldf;
     } else if (testTypeStr == "full") {
         testType = Full;
-    } else if (testTypeStr == "size") {
-        testType = Size;
+    } else if (testTypeStr == "sizecsdldf") {
+        testType = SizeCsdldf;
+    } else if (testTypeStr == "sizememcpy") {
+        testType = SizeMemcpy;
     } else {
         printUsage();
         return EXIT_FAILURE;
     }
 
-    // Should Record?
-    // Should Append Device Name?
     bool shouldRecord = false;
     std::string deviceName;
     if (argc >= 3) {
@@ -907,7 +1016,7 @@ int main(int argc, char* argv[]) {
     constexpr uint32_t MAX_SIMULATE = 9;  // Max power to simulate blocking
 
     const uint32_t size = 1 << 25;   // Size of the scan operation
-    const uint32_t batchSize = 500;  // How many tests to run
+    const uint32_t batchSize = 2000;  // How many tests to run
     const uint32_t
         workTiles =  // Work Tiles/Thread Blocks to launch based on input
         (size + PART_SIZE - 1) / PART_SIZE;
@@ -933,50 +1042,23 @@ int main(int argc, char* argv[]) {
                      readbackSize, shouldValidate, shouldReadback,
                      shouldTime,   false,          shouldRecord};
 
-    // Run Memcopy kernel as a baseline.
-    // We expect the speed of CSDL/CSDLDF
-    // to approach or equal the speed of Memcopy
-    args.shouldValidate = false;
-    Run(deviceName + "Memcopy", args, Memcpy);
-    args.shouldValidate = shouldValidate;
-
     switch (testType) {
         case Csdl:
-            Run(deviceName + "CSDL", args, CSDL);
+            TestCSDL(deviceName, args);
             break;
         case Csdldf:
-            GetOccupancySync(args);
-            Run(deviceName + "CSDLDF", args, CSDLDF);
+            TestCSDLDF(deviceName, args);
             break;
         case Full:
-            Run(deviceName + "RTS", args, RTS);
-
-            GetOccupancySync(args);
-            Run(deviceName + "CSDLDF", args, CSDLDF);
-
-            args.shouldGetStats = true;
-            InitializeUniforms(gpu, &buffs, size, workTiles, 0xffffffff);
-            Run(deviceName + "CSDLDF_Stats", args, CSDLDFSimulate);
-            for (int32_t i = MAX_SIMULATE; i >= 0; --i) {
-                InitializeUniforms(gpu, &buffs, size, workTiles, (1 << i) - 1);
-                Run(deviceName + "CSDLDF_" + std::to_string(1 << i), args,
-                    CSDLDFSimulate);
-            }
+            TestMemcpy(deviceName, args);
+            TestFull(deviceName, 9, args);
             break;
-        case Size:
-            for (uint32_t i = 10; i <= 25; ++i) {
-                const uint32_t currentSize = 1u << i;
-                const uint32_t currentWorkTiles =
-                    (currentSize + PART_SIZE - 1) / PART_SIZE;
-                args.size = currentSize;
-                args.workTiles = currentWorkTiles;
-                InitializeUniforms(gpu, &buffs, currentSize, currentWorkTiles,
-                                   0);
-                Run(deviceName + "CSDLDF_Size_" + std::to_string(currentSize),
-                    args, CSDLDF);
-            }
+        case SizeCsdldf:
+            TestSize(deviceName, PART_SIZE, args);
             break;
-
+        case SizeMemcpy:
+            TestMemcpySize(deviceName, PART_SIZE, args);
+            break;
         default:
             break;
     }

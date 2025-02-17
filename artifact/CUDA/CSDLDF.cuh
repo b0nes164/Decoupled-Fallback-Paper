@@ -12,6 +12,70 @@
 #define MAX_SPIN_COUNT 4
 
 namespace ChainedScanDecoupledFallback {
+
+// Purposefully pass lane count as a function argument rather
+// than template parameter, we want this to be NOT unrolled to emulate shader.
+template <uint32_t BLOCK_DIM>
+__device__ __forceinline__ void SubgroupSizeAgnosticScan(uint32_t* s_warpRed,
+                                                         const uint32_t laneCount) {
+    const uint32_t laneLog = __popc(laneCount - 1);
+    const uint32_t localSpine = BLOCK_DIM >> laneLog;
+    const uint32_t alignedSize = 1u << ((__popc(localSpine - 1) + laneLog - 1) / laneLog * laneLog);
+
+    uint32_t offset = 0;
+    uint32_t topOffset = 0;
+    const bool lanePred = getLaneId() == LANE_MASK;
+    for (uint32_t j = laneCount; j <= alignedSize; j <<= laneLog) {
+        const uint32_t step = localSpine >> offset;
+        const bool pred = threadIdx.x < step;
+        const uint32_t t = InclusiveWarpScan(pred ? s_warpRed[threadIdx.x + topOffset] : 0);
+        if (pred) {
+            s_warpRed[threadIdx.x + topOffset] = t;
+            if (lanePred) {
+                s_warpRed[WARP_INDEX + step + topOffset] = t;
+            }
+        }
+        __syncthreads();
+
+        if (j != laneCount) {
+            const uint32_t rshift = j >> laneLog;
+            const uint32_t index = threadIdx.x + rshift;
+            if (index < localSpine && (index & j - 1) >= rshift) {
+                s_warpRed[index] += s_warpRed[(index >> offset) + topOffset - 1];
+            }
+        }
+        topOffset += step;
+        offset += laneLog;
+    }
+}
+
+// Purposefully pass lane count as a function argument rather
+// than template parameter, we want this to be NOT unrolled to emulate shader.
+template <uint32_t BLOCK_DIM>
+__device__ __forceinline__ uint32_t SubgroupSizeAgnosticReduce(uint32_t* s_fallback,
+                                                               const uint32_t laneCount) {
+    const uint32_t laneLog = __popc(laneCount - 1);
+    const uint32_t localSpine = BLOCK_DIM >> laneLog;
+    const uint32_t alignedSize = 1u << ((__popc(localSpine - 1) + laneLog - 1) / laneLog * laneLog);
+
+    uint32_t f_red = 0;
+    uint32_t offset = 0;
+    uint32_t topOffset = 0;
+    const bool lanePred = getLaneId() == LANE_MASK;
+    for (uint32_t j = laneCount; j <= alignedSize; j <<= laneLog) {
+        const uint32_t step = localSpine >> offset;
+        const bool pred = threadIdx.x < step;
+        f_red = WarpReduceSum(pred ? s_fallback[threadIdx.x + topOffset] : 0);
+        if (pred && lanePred) {
+            s_fallback[WARP_INDEX + step + topOffset] = f_red;
+        }
+        __syncthreads();
+        topOffset += step;
+        offset += laneLog;
+    }
+    return f_red;
+}
+
 // lookback, with fallbacks if necessary
 template <uint32_t PART_VEC_SIZE, uint32_t WARPS, uint32_t PER_THREAD>
 __device__ __forceinline__ void LookbackFallback(const uint32_t partIndex, uint32_t localReduction,
@@ -84,11 +148,7 @@ __device__ __forceinline__ void LookbackFallback(const uint32_t partIndex, uint3
             }
             __syncthreads();
 
-            uint32_t f_red = 0;
-            if (threadIdx.x < LANE_COUNT) {
-                f_red = WarpReduceSum(threadIdx.x < WARPS ? s_fallback[threadIdx.x] : 0);
-            }
-            __syncthreads();
+            uint32_t f_red = SubgroupSizeAgnosticReduce<WARPS * LANE_COUNT>(s_fallback, LANE_COUNT);
 
             if (threadIdx.x < LANE_COUNT) {
                 uint32_t f_split = split(f_red) | (fallbackIndex ? FLAG_READY : FLAG_INCLUSIVE);
@@ -131,8 +191,8 @@ __device__ __forceinline__ void CSDLDF(
     void (*ScanVariantFull)(uint4*, uint32_t*, uint32_t*, const uint32_t),
     void (*ScanVariantPartial)(uint4*, uint32_t*, uint32_t*, const uint32_t, const uint32_t)) {
     constexpr uint32_t PART_VEC_SIZE = WARPS * LANE_COUNT * PER_THREAD;
-    __shared__ uint32_t s_warpReduction[WARPS];
-    __shared__ uint32_t s_fallback[WARPS];
+    __shared__ uint32_t s_warpReduction[WARPS * 2];
+    __shared__ uint32_t s_fallback[WARPS * 2];
     __shared__ uint32_t s_broadcast;
     __shared__ bool s_controlFlag;
 
@@ -155,13 +215,7 @@ __device__ __forceinline__ void CSDLDF(
     }
     __syncthreads();
 
-    if (threadIdx.x < LANE_COUNT) {
-        const bool pred = threadIdx.x < WARPS;
-        const uint32_t t = InclusiveWarpScan(pred ? s_warpReduction[threadIdx.x] : 0);
-        if (pred) {
-            s_warpReduction[threadIdx.x] = t;
-        }
-    }
+    SubgroupSizeAgnosticScan<WARPS * LANE_COUNT>(s_warpReduction, LANE_COUNT);
     __syncthreads();
 
     if (threadIdx.x < SPLIT_MEMBERS) {
@@ -197,7 +251,7 @@ __global__ void CSDLDFInclusive(uint32_t* scanIn, uint32_t* scanOut,
                               ScanInclusiveFull<PER_THREAD>, ScanInclusivePartial<PER_THREAD>);
 }
 
-}
+}  // namespace ChainedScanDecoupledFallback
 
 #undef SPLIT_MEMBERS
 #undef FLAG_NOT_READY

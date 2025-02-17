@@ -17,34 +17,39 @@ __device__ __forceinline__ uint32_t getLaneId() {
 
 //Warp scans
 __device__ __forceinline__ uint32_t InclusiveWarpScan(uint32_t val) {
-    #pragma unroll
-    for (int i = 1; i <= 16; i <<= 1)  // 16 = LANE_COUNT >> 1
-    {
-        const uint32_t t = __shfl_up_sync(0xffffffff, val, i, LANE_COUNT);
-        if (getLaneId() >= i)
-            val += t;
-    }
-
+    uint32_t t = __shfl_up_sync(0xffffffff, val, 1, LANE_COUNT);
+    if (getLaneId() >= 1) val += t;
+    t = __shfl_up_sync(0xffffffff, val, 2, LANE_COUNT);
+    if (getLaneId() >= 2) val += t;
+    t = __shfl_up_sync(0xffffffff, val, 4, LANE_COUNT);
+    if (getLaneId() >= 4) val += t;
+    t = __shfl_up_sync(0xffffffff, val, 8, LANE_COUNT);
+    if (getLaneId() >= 8) val += t;
+    t = __shfl_up_sync(0xffffffff, val, 16, LANE_COUNT);
+    if (getLaneId() >= 16) val += t;
     return val;
 }
 
 __device__ __forceinline__ uint32_t InclusiveWarpScanCircularShift(uint32_t val) {
-    #pragma unroll
-    for (int i = 1; i <= 16; i <<= 1)  // 16 = LANE_COUNT >> 1
-    {
-        const uint32_t t = __shfl_up_sync(0xffffffff, val, i, LANE_COUNT);
-        if (getLaneId() >= i)
-            val += t;
-    }
-
+    uint32_t t = __shfl_up_sync(0xffffffff, val, 1, LANE_COUNT);
+    if (getLaneId() >= 1) val += t;
+    t = __shfl_up_sync(0xffffffff, val, 2, LANE_COUNT);
+    if (getLaneId() >= 2) val += t;
+    t = __shfl_up_sync(0xffffffff, val, 4, LANE_COUNT);
+    if (getLaneId() >= 4) val += t;
+    t = __shfl_up_sync(0xffffffff, val, 8, LANE_COUNT);
+    if (getLaneId() >= 8) val += t;
+    t = __shfl_up_sync(0xffffffff, val, 16, LANE_COUNT);
+    if (getLaneId() >= 16) val += t;
     return __shfl_sync(0xffffffff, val, getLaneId() + LANE_MASK & LANE_MASK);
 }
 
 __device__ __forceinline__ uint32_t WarpReduceSum(uint32_t val) {
-    #pragma unroll
-    for (int mask = 16; mask; mask >>= 1)  // 16 = LANE_COUNT >> 1
-        val += __shfl_xor_sync(0xffffffff, val, mask, LANE_COUNT);
-
+    val += __shfl_xor_sync(0xffffffff, val, 16, LANE_COUNT);
+    val += __shfl_xor_sync(0xffffffff, val, 8, LANE_COUNT);
+    val += __shfl_xor_sync(0xffffffff, val, 4, LANE_COUNT);
+    val += __shfl_xor_sync(0xffffffff, val, 2, LANE_COUNT);
+    val += __shfl_xor_sync(0xffffffff, val, 1, LANE_COUNT);
     return val;
 }
 

@@ -50,201 +50,265 @@ void WriteVectorToCSV(const std::vector<float>& data, const std::string& filenam
         std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
         return;
     }
-
-    csvFile << "throughput" << std::endl;
-    for (size_t i = 0; i < data.size(); ++i) {
-        csvFile << data[i] << std::endl;
+    csvFile << "time\n";  // CSV header
+    for (float val : data) {
+        csvFile << val << "\n";
     }
     csvFile.close();
     std::cout << "CSV data written to " << filename << std::endl;
 }
 
-void BatchTimingCubChainedScan(uint32_t size, uint32_t batchCount, uint32_t* scanIn,
-                               uint32_t* scanOut, uint32_t* err, bool shouldRecord,
-                               std::string csvName) {
-    std::vector<float> time;
-    if (shouldRecord) {
-        time.resize(batchCount);
-    }
+class CubTestRunner {
+public:
+    // Run the test for a given size and batch count.
+    // Returns a vector of individual iteration times (in ms), excluding the warmup.
+    std::vector<float> runTest(uint32_t size, uint32_t batchCount,
+                               uint32_t* scanIn, uint32_t* scanOut, uint32_t* err) {
+        std::vector<float> times(batchCount);
+        printf("Running CUB test for size %u, batch count %u\n", size, batchCount);
 
-    printf("Beginning CUB inclusive batch timing test at:\n");
-    printf("Size: %u\n", size);
-    printf("Test batch size: %u\n", batchCount);
-
-    void* d_temp_storage = nullptr;
-    size_t temp_storage_bytes = 0;
-    cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes, scanIn, size);
-    cudaMalloc(&d_temp_storage, temp_storage_bytes);
-
-    cudaEvent_t start;
-    cudaEvent_t stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-
-    uint32_t testsPassed = 0;
-    float totalTime = 0.0f;
-    for (uint32_t i = 0; i <= batchCount; ++i) {
-        InitOne<<<256, 256>>>(scanIn, size);
-        cudaDeviceSynchronize();
-        cudaEventRecord(start);
+        // Warm-up: determine temporary storage size.
+        void* d_temp_storage = nullptr;
+        size_t temp_storage_bytes = 0;
         cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes, scanIn, scanOut, size);
-        cudaEventRecord(stop);
-        cudaEventSynchronize(stop);
+        cudaMalloc(&d_temp_storage, temp_storage_bytes);
 
-        float millis;
-        cudaEventElapsedTime(&millis, start, stop);
-        // Discard the first iteration (warmup)
-        if (i > 0) {
-            testsPassed += DispatchValidateInclusive(scanOut, err, size) ? 1 : 0;
-            totalTime += millis;
-            if (shouldRecord) {
-                time[i - 1] = size / (millis / 1000.0f);
+        cudaEvent_t start, stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+
+        float totalTime = 0.0f;
+        uint32_t testsPassed = 0;
+        for (uint32_t i = 0; i <= batchCount; ++i) {
+            InitOne<<<256, 256>>>(scanIn, size);
+            cudaDeviceSynchronize();
+
+            cudaEventRecord(start);
+            cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes, scanIn, scanOut, size);
+            cudaEventRecord(stop);
+            cudaEventSynchronize(stop);
+
+            float millis = 0.0f;
+            cudaEventElapsedTime(&millis, start, stop);
+
+            // Discard the first (warmup) iteration.
+            if (i > 0) {
+                testsPassed += DispatchValidateInclusive(scanOut, err, size) ? 1 : 0;
+                totalTime += millis;
+                times[i - 1] = millis;  // Record individual time in milliseconds.
             }
         }
+
+        float avgTime = totalTime / batchCount;
+        float throughput = size / (avgTime / 1000.0f);  // keys/sec calculation.
+        printf("CUB: Size %u: Average time: %f ms, Throughput: %E keys/sec, Tests passed: %u/%u\n",
+               size, avgTime, throughput, testsPassed, batchCount);
+
+        cudaDeviceSynchronize();
+        cudaFree(d_temp_storage);
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        return times;
     }
+};
 
-    printf("\n");
-    totalTime /= 1000.0f;
-    printf("TOTAL TESTS PASSED: %u / %u\n", testsPassed, batchCount);
-    printf("Total time elapsed: %f seconds\n", totalTime);
-    printf("Estimated speed at %u 32-bit elements: %E keys/sec\n\n", size,
-           size / totalTime * batchCount);
+class CsdldfTestRunner {
+public:
+    std::vector<float> runTest(uint32_t size, uint32_t batchCount,
+                               uint32_t* scanIn, uint32_t* scanOut, uint32_t* err) {
+        std::vector<float> times(batchCount);
+        printf("Running CSDLDF test for size %u, batch count %u\n", size, batchCount);
 
-    if (shouldRecord) {
-        WriteVectorToCSV(time, csvName + "_" + std::to_string(size) + ".csv");
+        const uint32_t k_csdldfThreads = WARPS * LANE_COUNT;
+        const uint32_t k_partitionSize = k_csdldfThreads * UINT4_PER_THREAD * 4;
+        const uint32_t k_vecSize = size / 4;  // Assumes size is a multiple of 4.
+
+        uint32_t* index;
+        uint32_t* threadBlockReduction;
+        const uint32_t threadBlocks = (size + k_partitionSize - 1) / k_partitionSize;
+        cudaMalloc(&index, sizeof(uint32_t));
+        cudaMalloc(&threadBlockReduction, threadBlocks * 2 * sizeof(uint32_t));
+
+        cudaEvent_t start, stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+
+        float totalTime = 0.0f;
+        uint32_t testsPassed = 0;
+        for (uint32_t i = 0; i <= batchCount; ++i) {
+            InitOne<<<256, 256>>>(scanIn, size);
+            cudaDeviceSynchronize();
+
+            cudaEventRecord(start);
+            cudaMemset(index, 0, sizeof(uint32_t));
+            cudaMemset(threadBlockReduction, 0, threadBlocks * 2 * sizeof(uint32_t));
+            ChainedScanDecoupledFallback::CSDLDFInclusive<WARPS, UINT4_PER_THREAD>
+                <<<threadBlocks, k_csdldfThreads>>>(scanIn, scanOut, threadBlockReduction, index, k_vecSize);
+            cudaEventRecord(stop);
+            cudaEventSynchronize(stop);
+
+            float millis = 0.0f;
+            cudaEventElapsedTime(&millis, start, stop);
+
+            if (i > 0) {
+                testsPassed += DispatchValidateInclusive(scanOut, err, size) ? 1 : 0;
+                totalTime += millis;
+                times[i - 1] = millis;
+            }
+        }
+
+        float avgTime = totalTime / batchCount;
+        float throughput = size / (avgTime / 1000.0f);
+        printf("CSDLDF: Size %u: Average time: %f ms, Throughput: %E keys/sec, Tests passed: %u/%u\n",
+               size, avgTime, throughput, testsPassed, batchCount);
+
+        cudaDeviceSynchronize();
+        cudaFree(index);
+        cudaFree(threadBlockReduction);
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        return times;
     }
+};
 
-    cudaDeviceSynchronize();
+class MemcpyTestRunner {
+public:
+    // Note: The memcpy test does not require an error buffer.
+    std::vector<float> runTest(uint32_t size, uint32_t batchCount,
+                               uint32_t* scanIn, uint32_t* scanOut) {
+        std::vector<float> times(batchCount);
+        printf("Running Memcpy test for size %u, batch count %u\n", size, batchCount);
 
-    // Cleanup
-    cudaFree(d_temp_storage);
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+        cudaEvent_t start, stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+
+        for (uint32_t i = 0; i <= batchCount; ++i) {
+            cudaDeviceSynchronize();
+            cudaEventRecord(start);
+            cudaMemcpy(scanIn, scanOut, size * sizeof(uint32_t), cudaMemcpyDeviceToDevice);
+            cudaEventRecord(stop);
+            cudaEventSynchronize(stop);
+
+            float millis = 0.0f;
+            cudaEventElapsedTime(&millis, start, stop);
+
+            if (i > 0) {  // Skip warmup iteration.
+                times[i - 1] = millis;
+            }
+        }
+
+        float totalTime = 0.0f;
+        for (float t : times)
+            totalTime += t;
+        float avgTime = totalTime / batchCount;
+        float throughput = size / (avgTime / 1000.0f);
+        printf("Memcpy: Size %u: Average time: %f ms, Throughput: %E keys/sec\n",
+               size, avgTime, throughput);
+
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        return times;
+    }
+};
+
+template <typename TestRunner>
+std::vector<std::pair<uint32_t, std::vector<float>>> RunCudaTests(
+    TestRunner& runner,
+    uint32_t batchCount,
+    uint32_t minPow,
+    uint32_t maxPow,
+    uint32_t* scanIn,
+    uint32_t* scanOut,
+    uint32_t* err) {
+    std::vector<std::pair<uint32_t, std::vector<float>>> results;
+    for (uint32_t i = minPow; i <= maxPow; ++i) {
+        uint32_t n = 1u << i;
+        std::vector<float> times = runner.runTest(n, batchCount, scanIn, scanOut, err);
+        results.push_back(std::make_pair(n, times));
+    }
+    return results;
 }
 
-void BatchTimingCSDLDF(uint32_t size, uint32_t batchCount, uint32_t* scanIn, uint32_t* scanOut,
-                       uint32_t* err, bool shouldRecord, std::string csvName) {
-    std::vector<float> time;
-    if (shouldRecord) {
-        time.resize(batchCount);
+std::vector<std::pair<uint32_t, std::vector<float>>> RunCudaTestsMemcpy(
+    MemcpyTestRunner& runner,
+    uint32_t batchCount,
+    uint32_t minPow,
+    uint32_t maxPow,
+    uint32_t* scanIn,
+    uint32_t* scanOut) {
+    std::vector<std::pair<uint32_t, std::vector<float>>> results;
+    for (uint32_t i = minPow; i <= maxPow; ++i) {
+        uint32_t n = 1u << i;
+        std::vector<float> times = runner.runTest(n, batchCount, scanIn, scanOut);
+        results.push_back(std::make_pair(n, times));
     }
-
-    printf("Beginning DecoupledFallback inclusive batch timing test at:\n");
-    printf("Size: %u\n", size);
-    printf("Test batch size: %u\n", batchCount);
-
-    const uint32_t k_csdldfThreads = WARPS * LANE_COUNT;
-    const uint32_t k_partitionSize = k_csdldfThreads * UINT4_PER_THREAD * 4;
-    const uint32_t k_vecSize = size / 4;  // Assume multiple of 4
-
-    uint32_t* index;
-    uint32_t* threadBlockReduction;
-    const uint32_t threadBlocks = (size + k_partitionSize - 1) / k_partitionSize;
-    cudaMalloc(&index, sizeof(uint32_t));
-    cudaMalloc(&threadBlockReduction, threadBlocks * 2 * sizeof(uint32_t));
-
-    cudaEvent_t start;
-    cudaEvent_t stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-
-    uint32_t testsPassed = 0;
-    float totalTime = 0.0f;
-    for (uint32_t i = 0; i <= batchCount; ++i) {
-        InitOne<<<256, 256>>>(scanIn, size);
-        cudaDeviceSynchronize();
-        cudaEventRecord(start);
-        cudaMemset(index, 0, sizeof(uint32_t));
-        cudaMemset(threadBlockReduction, 0, threadBlocks * 2 * sizeof(uint32_t));
-        ChainedScanDecoupledFallback::CSDLDFInclusive<WARPS, UINT4_PER_THREAD>
-            <<<threadBlocks, k_csdldfThreads>>>(scanIn, scanOut, threadBlockReduction, index,
-                                                k_vecSize);
-        cudaEventRecord(stop);
-        cudaEventSynchronize(stop);
-
-        float millis;
-        cudaEventElapsedTime(&millis, start, stop);
-        // Discard the first iteration (warmup)
-        if (i > 0) {
-            testsPassed += DispatchValidateInclusive(scanOut, err, size) ? 1 : 0;
-            totalTime += millis;
-            if (shouldRecord) {
-                time[i - 1] = size / (millis / 1000.0f);
-            }
-        }
-    }
-
-    printf("\n");
-    totalTime /= 1000.0f;
-    printf("TOTAL TESTS PASSED: %u / %u\n", testsPassed, batchCount);
-    printf("Total time elapsed: %f seconds\n", totalTime);
-    printf("Estimated speed at %u 32-bit elements: %E keys/sec\n\n", size,
-           size / totalTime * batchCount);
-
-    if (shouldRecord) {
-        WriteVectorToCSV(time, csvName + "_" + std::to_string(size) + ".csv");
-    }
-
-    cudaDeviceSynchronize();
-
-    // Cleanup
-    cudaFree(index);
-    cudaFree(threadBlockReduction);
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    return results;
 }
 
 int main(int argc, char* argv[]) {
+    // Allowed usage: <testType> [record [csvName]]
+    // testType must be one of "cub", "csdldf", or "memcpy".
+    if (argc < 2 || argc > 4) {
+        std::cerr << "Usage: " << argv[0] << " <cub|csdldf|memcpy> [record [csvName]]\n";
+        return EXIT_FAILURE;
+    }
+    std::string testType = argv[1];
     bool record = false;
     std::string csvName = "";
-    std::string testType;
-
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <cub|csdl|csdldf> [record [csvName]]\n";
-        return EXIT_FAILURE;
-    }
-
-    testType = argv[1];
-    if (testType != "cub" && testType != "csdldf") {
-        std::cerr << "Unknown test type: " << testType << "\n";
-        return EXIT_FAILURE;
-    }
-
-    if (argc > 2) {
-        std::string arg2(argv[2]);
-        if (arg2 == "record") {
+    if (argc >= 3) {
+        if (std::string(argv[2]) == "record") {
             record = true;
-            if (argc > 3) {
+            if (argc == 4) {
                 csvName = argv[3];
             }
+        } else {
+            std::cerr << "Unknown second argument: " << argv[2] << std::endl;
+            return EXIT_FAILURE;
         }
     }
 
-    constexpr uint32_t testBatchSize = 500;
-    constexpr uint32_t maxPowTwo = 25;
+    constexpr uint32_t testBatchSize = 2000;
+    constexpr uint32_t minPow = 10;
+    constexpr uint32_t maxPow = 25;
 
     uint32_t* err = nullptr;
     uint32_t* scan_in = nullptr;
     uint32_t* scan_out = nullptr;
     cudaMalloc(&err, sizeof(uint32_t));
-    cudaMalloc(&scan_in, (1 << maxPowTwo) * sizeof(uint32_t));
-    cudaMalloc(&scan_out, (1 << maxPowTwo) * sizeof(uint32_t));
-    checkCudaError();
+    cudaMalloc(&scan_in, (1u << maxPow) * sizeof(uint32_t));
+    cudaMalloc(&scan_out, (1u << maxPow) * sizeof(uint32_t));
 
-    //Only do one test at a time
-    //We want the tests to be cold, otherwise cacheing introduces data artifacts
-    for (uint32_t i = 10; i <= maxPowTwo; ++i) {
-        uint32_t n = 1 << i;
-        if (testType == "cub") {
-            BatchTimingCubChainedScan(n, testBatchSize, scan_in, scan_out, err, record,
-                                      csvName + "_CUB");
-        } else if (testType == "csdldf") {
-            BatchTimingCSDLDF(n, testBatchSize, scan_in, scan_out, err, record,
-                              csvName + "_CSDLDF");
+    cudaError_t errStatus = cudaGetLastError();
+    if (errStatus != cudaSuccess) {
+        std::cerr << "CUDA Error: " << cudaGetErrorString(errStatus) << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    std::vector<std::pair<uint32_t, std::vector<float>>> results;
+    if (testType == "cub") {
+        CubTestRunner runner;
+        results = RunCudaTests(runner, testBatchSize, minPow, maxPow, scan_in, scan_out, err);
+    } else if (testType == "csdldf") {
+        CsdldfTestRunner runner;
+        results = RunCudaTests(runner, testBatchSize, minPow, maxPow, scan_in, scan_out, err);
+    } else if (testType == "memcpy") {
+        MemcpyTestRunner runner;
+        results = RunCudaTestsMemcpy(runner, testBatchSize, minPow, maxPow, scan_in, scan_out);
+    } else {
+        std::cerr << "Unknown test type: " << testType << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    if (record) {
+        for (const auto& result : results) {
+            uint32_t size = result.first;
+            const std::vector<float>& times = result.second;
+            std::string filename = csvName + "_" + testType + "_Size_" + std::to_string(size) + ".csv";
+            WriteVectorToCSV(times, filename);
         }
     }
-    
-    checkCudaError();
+
     cudaFree(err);
     cudaFree(scan_in);
     cudaFree(scan_out);
