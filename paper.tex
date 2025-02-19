@@ -201,7 +201,7 @@ Due to its significance in circuits and as a fundamental algorithmic primitive, 
 Contemporary GPU scans depart from early PRAM-like scans~\cite{Horn, Hensley, Sengupta2006, Gress} by leveraging the GPU memory hierarchy, which consists of progressively faster but increasingly private tiers. Efficient scans integrate fine-grained intra-workgroup (\emph{local}) strategies in shared memory and registers with coarse-grained inter-workgroup (\emph{global}) strategies in global memory. Given their low arithmetic intensity, local scans are inherently memory-bound, as demonstrated by Merrill and Grimshaw~\cite{Merrill2009}. Consequently, recent scan optimizations have shifted toward refining global strategies, particularly inter-workgroup coordination and synchronization. This section reviews three key approaches---\emph{Scan-then-Propagate}, \emph{Reduce-then-Scan}, and \emph{Chained-Scan}---analyzing their handling of inter-workgroup dependencies and efficiency in minimizing global memory access while maximizing bandwidth utilization.
 
 \subsubsection{Scan-then-Propagate}
-Introduced by Sengupta et al.~\cite{10.5555/1280094.1280110}, the \emph{Scan-then-Propagate}~\cite{GPUGems3, Sengupta2011} extends intra-workgroup scans to large inputs by resolving inter-workgroup dependencies in three phases:
+Introduced by Sengupta et al.~\cite{10.5555/1280094.1280110}, \emph{Scan-then-Propagate}~\cite{GPUGems3, Sengupta2011} extends intra-workgroup scans to large inputs by resolving inter-workgroup dependencies in three phases:
 \begin{enumerate}
   \item \textbf{Intra-Workgroup (Local) Scan:}  Each workgroup performs an inclusive scan on its assigned work tile, storing local results and reductions in global memory.
   \item \textbf{Spine Scan:} The workgroup reductions, collectively forming the \emph{spine}, are gathered and scanned to compute the \emph{root}, resolving dependencies between work tiles. For large scans, this stage is an insignificant amount of work compared to the first and third.
@@ -388,7 +388,7 @@ Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3
         $\textit{fanout\_index} \gets \textit{thread\_id} + \textit{reduced\_stride}$\;
 
         $\textit{cond1} \gets \textit{fanout\_index} < \textit{spine\_length}$\;
-        $\textit{cond2} \gets (\textit{fanout\_index} \& (\textit{j} - 1)) \geq \textit{reduced\_stride}$\;
+        $\textit{cond2} \gets (\textit{fanout\_index} \,\&\, (\textit{j} - 1)) \geq \textit{reduced\_stride}$\;
 
         \If{$\textit{cond1} \textbf{ \&\& } \textit{cond2}$}{
           $\textit{x}[\textit{fanout\_index}] \gets \textit{x}[\textit{fanout\_index}] + \textit{x}[((\textit{fanout\_index} / \textit{stride}) + \textit{top\_offset}) - 1]$\;
@@ -526,7 +526,7 @@ Cross-API comparisons remain challenging, as despite being nearly identical at a
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{graphics/cuda_plot.pdf}
-  \caption{(This graph can be provided with or without Memcpy speeds. I am thinking without, as it's currently very busy.) Performance versus CUB (NVIDIA 2080 Super)}
+  \caption{(This graph can be provided with or without Memcpy speeds. I am thinking without, as it's currently very busy. \john{It's OK to include it, I think. I would make the memcpy lines two different shades of gray (not colored) and I would also make them dashed, just to ease the visual clutter. I would also consider a dotted horizontal line at the speed of light of the device. Also I would pick colors for the CSDLDF that are not so close together (you will dig colorbrewer.org).}) Performance versus CUB (NVIDIA 2080 Super)}
 \end{figure}
 
 \subsubsection{Same-API Performance Versus Baseline Measures}
@@ -593,11 +593,11 @@ To demonstrate the resilience of our technique to unfair schedulers, we simulate
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
     \includegraphics[width=\linewidth]{graphics/time_plot.pdf}
-    \caption{Throughput vs Baseline}
+    \caption{Throughput vs.\ Baseline}
     \label{fig:execution_time}
   \end{subfigure}
 
-  \caption{Simulated Blocking}
+  \caption{Simulated Blocking. \john{Please write a good caption here---this is an important caption to write! Probably writing subfigure captions is the right way to go (explain each of them individually).}}
   \label{fig:vertical_images}
 \end{figure*}
 
@@ -643,7 +643,7 @@ In this paper, we presented \emph{Decoupled Fallback}, a single-pass \emph{Chain
     AMD 7900 XT                           & 800              & 100.0e9         \\
     \bottomrule
   \end{tabular}
-  \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second)}
+  \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second). \john{Suggest splitting the Intel line into two lines, one for single and one for dual? A cleaner table, I think.}}
   \label{tab:memory_bandwidth}
 \end{table}
 Although all backend APIs support \emph{timestamp queries inside encoders}, Apple GPUs do not, so we are forced to implement our own \emph{Memcpy} kernel to measure memory bandwidth, as opposed to simply timing an API's copy buffer operation. It is well known that \emph{observed} peak memory bandwidth, tends to diverge from vendor-listed peak bandwidth, so for completeness we list these figures above. We make a number of observations:
