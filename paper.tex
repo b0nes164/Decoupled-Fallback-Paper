@@ -236,22 +236,40 @@ Although \emph{Decoupled-Lookback} increases global memory access during the pro
 
 Hardware-level considerations underscore the limitations of fixed-launches. On GPUs where the global memory data cache is indexed by physical addresses---and therefore requires lookups in \emph{translation lookaside buffers} (TLBs)---fixed-launches can lead to performance degradation due to cache thrashing. This issue occurs when task sizes are large enough that each workgroup accesses its own unique page entry, and the device lacks sufficient TLB coverage to support the memory access patterns of all workgroups. Although this behavior typically does not manifest with simple monoids, more complex monoids with \emph{struct-of-array} memory access patterns---or applications like radix sorting, where the scattering phase of each pass results in $radixDigits \cdot o$ unique memory locations---may experience significant performance degradation.
 
-Given these constraints, oversubscription and \emph{Chained Scan} emerge as the more portable and preferred architecture. Furthermore, its single-kernel design and serial ordering make it suitable for \emph{in-situ} operations, benefiting applications such as data deduplication, sparse data compaction, error correction, and interval merging. However, while \emph{Chained-Scan} with \emph{Decoupled Lookback} appears to be the ideal scan architecture in both theoretical and practical terms, it has a critical limitation: its reliance on a forward-progress guarantee. While NVIDIA GPUs provide this guarantee, data collected by Sorensen et al.~\cite{sorensen2021} shows that ARM and Apple’s M-series GPUs do not. Without forward progress guarantees, \emph{Chained-Scan} is not merely inefficient---it risks indefinite deadlock, causing the application to freeze and rendering the kernel unable to terminate, requiring external intervention to recover.
+Given these constraints, oversubscription and \emph{Chained Scan} emerge as the more portable and preferred architecture. Furthermore, its single-kernel design and serial ordering make it suitable for \emph{in-situ} operations, benefiting applications such as data deduplication, sparse data compaction, error correction, and interval merging. However, while \emph{Chained-Scan} with \emph{Decoupled Lookback} appears to be the ideal scan architecture in both theoretical and practical terms, it has a critical limitation: its reliance on a forward-progress guarantee. While NVIDIA GPUs provide this guarantee, data collected by Sorensen et al.~\cite{sorensen2021} shows that ARM and Apple’s GPUs do not. Without forward progress guarantees, \emph{Chained-Scan} is not merely inefficient---it risks indefinite deadlock, causing the application to freeze and rendering the kernel unable to terminate, requiring external intervention to recover.
 
 \subsection{Why does \emph{Chained-Scan} Rely on Forward-Progress Guarantees?}
-A \emph{forward-progress guarantee} (FPG) ensures that all occupant subgroups (from possibly different workgroups) eventually make progress toward termination, preventing indefinite starvation. Sorensen et al.~\cite{sorensen2018,sorensen2021} provide the most comprehensive analysis of GPU schedulers, classifying \emph{Chained-Scan} as FPG-reliant.
+A \emph{forward-progress guarantee} (FPG) ensures that all occupant subgroups (of possibly different workgroups) eventually make progress toward termination, preventing indefinite starvation. Prior to Sorensen et al.~\cite{sorensen2018,sorensen2021}, developers largely relied on untested, folklore-like assumptions about GPU progress guarantees. Instead, Sorensen et al. systematically defined and tested three progress models\footnote{Note, a ``workgroup'' in Sorensen et al.'s definition is not necessarily in-flight and occupant on a multiprocessor.}:
 \begin{itemize}
-  \item Introduce Sorensen
-  \item Introduce Progress models
-  \item Explain why OBE + data
-  \item Explain why one-to-one mapping doesn't solve problem.
+  \item \textbf{Occupancy-Bound Execution (OBE)}: Workgroups that have made at least one execution step.
+  \item \textbf{Heterogeneous System Architecture (HSA)}: The workgroup with the lowest ID that has not yet terminated.
+  \item \textbf{Linear OBE (LOBE)}: Workgroups that have made at least one step, and any workgroup with a lower ID than a workgroup that has made at least one step.
 \end{itemize}
+Their findings demonstrated that Apple and ARM GPUs do not support LOBE, contradicting their prior assumptions in \cite{sorensen2018}. 
 
-\john{Question, and maybe this is worth a footnote. What if we guaranteed that no multiprocessor ever had more than one workgroup scheduled to it, say by always allocating the maximum amount of workgroup memory? Of course there would be performance issues. But does that solve the problem? Or do we descend into an analogous issue with subgroup scheduling?}
+This has direct implications for \emph{Chained Scan}, which was \emph{previously} classified as a \emph{one-way producer-consumer} (PC) HSA algorithm: a workgroup only consumes from lower-ID counterparts, ensuring that execution proceeds in a strictly ordered fashion. Under HSA, this structure guarantees termination, as the lowest ID workgroup is always given forward progress. If subgroups from the lowest ID workgroup are not guaranteed execution, then any dependent subgroup may spin indefinitely, waiting on an update that never arrives.   
 
-\raph{Answering John's question here. Short answer no. One mental model that would illustrate this is a workgroup being preempted from a multiprocessor for system reasons, for example to perform compositing for scanout. I brought this up with a GPU engineer and they said this wasn't actually the reason for lack of FPG on their hardware, but wasn't able to explain the true story for proprietary reasons. In any case, while I am fine to a large extent talking operationally about scheduling etc, at the end of the day you need a formal model that tells you which computations will terminate. That's what Tyler's work is about and I think it's best to cite it and not try to re-litigate it, especially in oversimplified form. Also, taking another look at "Specifying and Testing," I notice that they use "livelock" but not deadlock to describe situations where system progress depends on FPG. I'm not finding a cite for this now, but if memory serves, a deadlock condition is one in which no progress is possible under *any* scheduling condition, while in livelock there is some scheduler condition that could resolve the livelock, but it is not resolved under all such conditions.}
+However, the HSA classification relies on the assumption that \emph{Chained Scan} follows scheduler-assigned virtualized IDs rather than dynamically acquired atomic-bumped IDs, as used by both \emph{StreamScan} and \emph{Decoupled Lookback}. Since virtual IDs do not necessarily match atomic IDs, HSA does not guarantee termination---the lowest virtual ID may not be scheduled first, potentially leading to starvation.
 
-\john{The reason that I ask this question is that I take the perspective of a reviewer who decides, oh, I can solve this FPG problem by doing something simple, like ``scheduling only one workgroup per processor''. The reviewer, of course, doesn't actually implement this, but it totally kills the paper when a reviewer gets it into his/her head that there is another way to go about this and why didn't we study THAT way, reject, go back and incorporate my amazing idea. We need to explicitly close the door emphatically in the paper to obvious, simple, unworkable solutions; we can't give reviewers any headroom to substitute their own judgment when we know better.}
+LOBE adds an additional condition on top of OBE: lower-ID workgroups must be scheduled before higher-ID ones. However, this condition is unnecessary for \emph{Chained Scan} for two reasons: (1) We already guarantee serial ordering of work items through atomic bumping, making OBE sufficient. (2) \emph{Chained Scan} only requires forward progress after a workgroup has atomically acquired its tile index. By definition, a workgroup that has acquired its index must be occupant on a physical processor (i.e., it has made at least one execution step); thus, OBE guarantees forward progress.
+ 
+\begin{table}
+  \small
+  \centering
+  \begin{tabular}{lcccc}
+    \toprule
+    Algorithm       & LOBE & OBE & HSA & Unfair \\
+    \midrule
+    CS (Workgroup ID)  & Yes & No  & Yes & No  \\
+    CS (Atomic ID)        & Yes & Yes & No  & No  \\
+    Ours               & Yes & Yes & Yes & Yes \\
+    \bottomrule
+  \end{tabular}
+  \caption{Comparison of Chained Scan (CS) Variants and Our Implementation Across Progress Models.}
+  \label{tab:progress_models}
+\end{table}
+
+\thomas{Is the one-to-one workgroup to multiprocessor rebuttal still neccessary here?}
 
 \subsection{Why is reliance on Forward Progress Guarantees a Portability Problem?}
 The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing shows that, at best, running \emph{Chained-Scan} without FPG results in severe performance degradation, and at worst, risks TDR and program crashes.
@@ -268,7 +286,7 @@ Our first attempt \raph{we'll add the cite post-review} at implementing a \emph{
 \emph{Scalar Fallback} suffers from two primary inefficiencies. First, the fallback reduction is performed serially by a single thread, progressing only when the lookback thread performs a waiting spin. This results in a $t$-sized blocking tile requiring $t$ spins to complete. Second, once the fallback completes, the lookback thread does not post its result to device memory, forcing every blocked workgroup to redundantly recompute the fallback. While \emph{Scalar Fallback} achieved speed-of-light performance on hardware with FPG and executed correctly without it, its performance on the latter was inferior to \emph{Reduce then Scan}.
 
 \section{Decoupled Fallback}
-\emph{Decoupled Fallback} addresses both inefficiencies. The key advance is to utilize the parallelism available in the workgroup to perform the fallback computation, rather than performing it sequentially. To do so requires nontrivial coordination within the workgroup, given that the \emph{Chained-Propagation} logic is typically performed by the first subgroup.
+\emph{Decoupled Fallback} addresses both inefficiencies. The key advance is to utilize the parallelism available in the workgroup to perform the fallback computation, rather than performing it sequentially. To do so requires nontrivial coordination within the workgroup, given that the \emph{Chained-Propagation} logic is typically performed by the first thread.
 
 \begin{algorithm}
   \small
