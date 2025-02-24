@@ -140,7 +140,7 @@
 
 \maketitle
 
-\section{Introduction (WIP)}
+\section{Introduction}
  (Tell readers we are targeting WebGPU)
  (Speed of light definition here)
 \subsection{Goals of a Scan Implementation}
@@ -236,7 +236,7 @@ Although \emph{Decoupled-Lookback} increases global memory access during the pro
 
 Hardware-level considerations underscore the limitations of fixed-launches. On GPUs where the global memory data cache is indexed by physical addresses---and therefore requires lookups in \emph{translation lookaside buffers} (TLBs)---fixed-launches can lead to performance degradation due to cache thrashing. This issue occurs when task sizes are large enough that each workgroup accesses its own unique page entry, and the device lacks sufficient TLB coverage to support the memory access patterns of all workgroups. Although this behavior typically does not manifest with simple monoids, more complex monoids with \emph{struct-of-array} memory access patterns---or applications like radix sorting, where the scattering phase of each pass results in $radixDigits \cdot o$ unique memory locations---may experience significant performance degradation.
 
-Given these constraints, oversubscription and \emph{Chained Scan} emerge as the more portable and preferred architecture. Furthermore, its single-kernel design and serial ordering make it suitable for \emph{in-situ} operations, benefiting applications such as data deduplication, sparse data compaction, error correction, and interval merging. However, while \emph{Chained-Scan} with \emph{Decoupled Lookback} appears to be the ideal scan architecture in both theoretical and practical terms, it has a critical limitation: its reliance on a forward-progress guarantee. While NVIDIA GPUs provide this guarantee, data collected by Sorensen et al.~\cite{sorensen2021} shows that ARM and Apple’s GPUs do not. Without forward progress guarantees, \emph{Chained-Scan} is not merely inefficient---it risks indefinite deadlock, causing the application to freeze and rendering the kernel unable to terminate, requiring external intervention to recover.
+Given these constraints, oversubscription and \emph{Chained Scan} emerge as the more portable and preferred architecture. Furthermore, its single-kernel design and serial ordering make it suitable for \emph{in-situ} operations, benefiting applications such as data deduplication, sparse data compaction, error correction, and interval merging. However, it has a critical limitation: its reliance on a forward-progress guarantee. While NVIDIA GPUs provide this guarantee, data collected by Sorensen et al.~\cite{sorensen2021} shows that ARM and Apple’s GPUs do not. Without forward progress guarantees, \emph{Chained-Scan} is not merely inefficient---it risks indefinite deadlock, causing the application to freeze and rendering the kernel unable to terminate, requiring external intervention to recover.
 
 \subsection{Why does \emph{Chained-Scan} Rely on Forward-Progress Guarantees?}
 A \emph{forward-progress guarantee} (FPG) ensures that all occupant subgroups (of possibly different workgroups) eventually make progress toward termination, preventing indefinite starvation. Prior to Sorensen et al.~\cite{sorensen2018,sorensen2021}, developers largely relied on untested, folklore-like assumptions about GPU progress guarantees. Instead, Sorensen et al. systematically defined and tested three progress models\footnote{Note, a ``workgroup'' in Sorensen et al.'s definition is not necessarily in-flight and occupant on a multiprocessor.}:
@@ -272,7 +272,7 @@ LOBE adds an additional condition on top of OBE: lower-ID workgroups must be sch
 \thomas{Is the one-to-one workgroup to multiprocessor rebuttal still neccessary here?}
 
 \subsection{Why is reliance on Forward Progress Guarantees a Portability Problem?}
-The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing shows that, at best, running \emph{Chained-Scan} without FPG results in severe performance degradation, and at worst, risks TDR and program crashes.
+The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing shows that, at best, running \emph{Chained-Scan} without FPG results in severe performance degradation, and at worst, risks \emph{Timeout Device Recovery} and program crashes.
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{graphics/Figure_1.pdf}
@@ -342,12 +342,9 @@ Our first attempt \raph{we'll add the cite post-review} at implementing a \emph{
   \caption{High-Level Scan Kernel}
 \end{algorithm}
 
-To optimize the fallback operation, we employ three strategies. (1) First, a shared memory \emph{control flag} enables threads performing the lookback to signal the entire workgroup when a fallback is necessary. (2) Next, we limit the number of spins a thread can perform while waiting on a tile; exceeding this threshold triggers a fallback. While this approach risks redundant fallbacks---since a late tile is indistinguishable from a genuinely blocking one---exposing the maximum spin count as a tunable parameter helps minimize false positives. \john{I can see it is sensible to have a maximum spin count but I do not see how the action of exposing the maximum spin count to the programmer minimizes false positives.} (3) Finally, after completing a fallback, the workgroup attempts to post the reduction result of the blocking tile, preventing redundant fallbacks by subsequent workgroups.
+To optimize the fallback operation, we employ three strategies. (1) First, a shared memory \emph{control flag} enables threads performing the lookback to signal the entire workgroup when a fallback is necessary. (2) Next, we limit the number of spins a thread can perform while waiting on a tile; exceeding this threshold triggers a fallback. While this approach risks \emph{false positive} fallbacks---since a late tile is indistinguishable from a genuinely blocking one---the maximum spin count can be tuned to minimize redundant fallbacks. Increasing the spin count lowers false positives but delays progress in true-blocking scenarios. False positives not only increase memory traffic but also consume compute resources that could be scheduled on the same multiprocessor. (3) After completing a fallback, the workgroup attempts to post the reduction result of the blocking tile, preventing redundant fallbacks by subsequent workgroups.
 
-\raph{To address John's comment: increasing the spin count reduces false positives; a false positive can be defined as the preceding tile posting the result late, meaning that there is some spin count for which it would proceed. However, it also delays progress in the true positive case. The deeper way to talk about this is to engage the cost model, which is done to some extent in the paragraph below. The cost of a false positive includes increased memory traffic and also compute opportunity cost of other workgroups which can be scheduled on the same multiprocessor. Indeed, with sufficient occupancy the cost of a workgroup spinning (or making scalar progress) is minimal. So optimal performance really depends on the *distribution* of spin counts. I put all this in a comment but think we can say it in the paper.}
-\john{My point was not about the relationship between a spin count and false positives, it was that the draft specifically said that exposing the maximum spin count to the programmer is what minimized false positives. It's not the exposing that minimizes false positives.}
-
-The viability of \emph{Decoupled-Fallback} relies on the same cache locality properties as \emph{Decoupled-Lookback}. Since no subgroup scheduler is perfectly fair, all hardware inherently has a natural fallback rate $f$\!, independent of FPG, due to \emph{false-positive} fallback operations. As a result, memory bandwidth usage increases (and we expect throughput to decrease) by $O(fn)$ to $O((2 + f)n)$. However, just as serial ordering confines spine memory accesses within an $o$-width sliding window, scan input accesses are likewise constrained to an $ot$-width window, increasing their likelihood of residing in cache. As we later empirically demonstrate(Simulated Blocking Section), this cache residency significantly reduces memory access costs, making fallback operations predominantly compute-bound when reducing a blocking tile. Since pure reduction has minimal overhead, throughput approaches $O(2n)$ on most devices.
+The viability of \emph{Decoupled-Fallback} relies on the same cache locality properties as \emph{Decoupled-Lookback}. Since no subgroup scheduler is perfectly fair, all hardware inherently has a natural fallback rate $f$\!, independent of FPG, due to false-positive fallback operations. As a result, memory bandwidth usage increases (and we expect throughput to decrease) by $O(fn)$ to $O((2 + f)n)$. However, just as serial ordering confines spine memory accesses within an $o$-width sliding window, scan input accesses are likewise constrained to an $ot$-width window, increasing their likelihood of residing in cache. As we later empirically demonstrate in \ref{sec:Sim-Blocking}, this cache residency significantly reduces memory access costs, making fallback operations predominantly compute-bound when reducing a blocking tile. Since pure reduction has minimal overhead, throughput approaches $O(2n)$ on most devices.
 
 \section{Implementation}
 At a high level, our algorithm follows a five-phase construction:
@@ -514,10 +511,10 @@ We configure workgroups with a size $w = 256$ threads, where each thread process
   \small
   \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}} l l c r r}
     \toprule
-    Vendor & Device Name & OBE & Occupancy & Subgroup Size \\
+    Vendor & Device Name & LOBE & Occupancy & Subgroup Size \\
     \midrule
     Intel  & HD Graphics 620        & \textbf{Yes} & 9   & 8--32  \\
-    ARM    & Mali-G78 MP20          & \textbf{Yes} & 40  & 16  \\
+    ARM    & Mali-G78 MP20          & \textbf{No}  & 40  & 16  \\
     Apple  & M3                     & \textbf{No}  & 80  & 32  \\
     Apple  & M1 Max                 & \textbf{No}  & 160 & 32  \\
     NVIDIA & GeForce RTX 2080 Super & \textbf{Yes} & 192 & 32  \\
@@ -576,7 +573,7 @@ To better understand how devices interact with \emph{CSDLDF}, we also collect a 
 \end{itemize}
 Despite significantly different absolute occupancies, the number of waiting spins remains consistent across devices. Likewise, lookback length is stable and remains well below the theoretical occupancy bound. Expressed as a percentage of occupancy, it remains under 10\% for all devices, except for the Intel HD620, where its elevated value is likely an artifact of its low absolute occupancy. Most notably, the devices lacking FPG---Apple M3 and M1 Max---do not exhibit significantly higher successful insertion rates than the others, suggesting that true deadlocking is a rare occurrence.
 
-\subsection{Simulated Blocking}
+\subsection{Simulated Blocking}\label{sec:Sim-Blocking}
 To demonstrate the resilience of our technique to unfair schedulers, we simulate fallback rates significantly higher than those observed organically by intentionally forcing fallbacks through the omission of work tile reductions. Beginning with infrequent omissions---1 in 512 work tiles---we progressively increase the rate to near-continuous levels, reaching 1 in 2 work tiles.
 \begin{figure*}[t]
   \centering
@@ -614,14 +611,12 @@ To demonstrate the resilience of our technique to unfair schedulers, we simulate
 
 As shown in Figure~\ref{fig:execution_time}, performance relative to a no-omission baseline remains above 85\% even at near 100\% fallback rates across all devices---except for the Intel HD620, where only a 25\% fallback rate is induced. Notably, this performance level remains well above the equivalent \emph{RTS} performance of 66\%. While Figures~\ref{fig:fallbacks_initiated} and \ref{fig:total_spins} confirm that we are inducing fallbacks, this test primarily measures the impact of increasing fallback operations rather than true blocking behavior. The finer details of this distinction are discussed next.
 \section{Discussion}
-\subsection{Limits on Speed-of-Light Performance}
-
-In true blocking scenarios, the stalled workgroup is starved of progress, but execution resources are not lost; rather, they are redistributed to other workgroups. As a result, we would expect lookback lengths to be longer than those observed in our simulation.
-
-\thomas{Somewhere in here is perfect for Raph's commentary on the speed of atomics on different hardware. Once we have it, we can retool this section around it.}
 
 \subsection{Trade-offs}
 \emph{Decoupled Fallback} introduces several tradeoffs that must be considered: (1) Without a memory barrier, the scan cannot be performed in place and requires a separate output buffer to prevent false-positive fallback operations on post-scanned values, as the tile state may not update before the scan values. (2) For monoids larger than 64 bits, multiple subgroups are required, increasing synchronization overhead due to the need for shared memory and barriers. (3) In certain in-situ compaction algorithms where fallback work-tiles cannot be easily reduced and must be held in registers, Decoupled Fallback may reduce occupancy. (4) Additionally, in compute-bound in-situ compaction algorithms, the cost of fallbacks may outweigh the savings from reduced global memory traffic. (5) Lastly, because the control flow of \emph{Decoupled Fallback} requires barriers, latency incurred during lookback cannot be hidden by workgroup computation.
+
+\subsection{Limits on Speed-of-Light Performance}
+
 
 \subsection{Future Work}
 Sorting is one of the most notable beneficiaries of single-pass scan and, by extension, \emph{Decoupled Fallback}. The current state-of-the-art algorithm, Adinets and Merrill’s \emph{Onesweep}~\cite{adinets2022onesweepfastersignificantdigit}, is an 8-bit least-significant-digit radix sort, where single-pass scan minimizes data movement during digit-binning passes. However, due to its compute-intensive nature and large $radixDigit$-sized monoid, it is unclear whether \emph{Decoupled Fallback} will map well to sorting or if new techniques are needed.
@@ -637,9 +632,12 @@ In this paper, we presented \emph{Decoupled Fallback}, a single-pass \emph{Chain
 \clearpage
 \appendix
 \section{Artifact}
+\subsection{Availability}
+We provide our artifact in the following GitHub repository: \thomas{Will anonymize with GithubAnonymous once we are ready}. The repository contains per API requirements and building instructions.
+
 \subsection{Baseline Comparisons: \emph{Memcpy}}
 \label{sec:memcpy}
-\begin{table}[h!]
+\begin{table}
   \small
   \centering
   \begin{tabular}{l r r}
@@ -647,7 +645,7 @@ In this paper, we presented \emph{Decoupled Fallback}, a single-pass \emph{Chain
     Device                                & \makecell{Memory                   \\ Bandwidth \\ (GB/s)} & \makecell{Expected \\ Throughput \\ (32-bit ele/sec)} \\
     \midrule
     Intel HD620 (Single-/Dual-Channel)    & 17.1 / 34.1      & 2.13e9 / 4.26e9 \\
-    ARM Mali-G78 MP20 / Pixel 6a (Tensor) & 51.2             & 6.40e9          \\
+    ARM Mali-G78 MP20 / Tensor (Pixel 6a) & 51.2             & 6.40e9          \\
     Apple M3                              & 102.4            & 12.8e9          \\
     Apple M1 Max                          & 409.6            & 51.2e9          \\
     Nvidia 2080 Super                     & 496              & 62.0e9          \\
@@ -669,11 +667,6 @@ Although all backend APIs support \emph{timestamp queries inside encoders}, Appl
 \subsection{Baseline Comparisons: \emph{Reduce then Scan}}
 \label{sec:rts}
 As we desire the most competitve baseline possible, our \emph{RTS} kernels employ the same intra-workgroup scan strategy and tuning parameters as \emph{CSDLDF}. Initially, we adopted Merrill and Grimshaw's~\cite{Merrill2009} workgroup raking approach for inter-workgroup processing. However, empirical testing revealed that raking was consistently outperformed—by up to $\sim$15\% on lower-end devices—by a simpler approach that processes the spine serially with a single workgroup. Furthermore, our \emph{RTS} performance closely aligns with the theoretically expected $O(3n)$ global memory movement.
-
-\subsection{Availability}
-We provide our artifact in the following GitHub repository:
-\thomas{Will anonymize with GithubAnonymous once we are ready}
-The repository contains per API requirements and building instructions.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{bib}
