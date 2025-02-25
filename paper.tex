@@ -141,15 +141,16 @@
 \maketitle
 
 \section{Introduction}
- (Tell readers we are targeting WebGPU)
- (Speed of light definition here)
-\subsection{Goals of a Scan Implementation}
-\begin{itemize}
-  \item \textbf{Minimal global memory access:} the scan should minimize global memory access to the theoretical minimum of $2n$.
-  \item \textbf{Fully saturates global memory bandwidth:} the scan should be capable of fully saturating the global memory bandwidth.
-  \item \textbf{Portability:} the scan should be portable across hardware vendors and architectures.
-\end{itemize}
-Our method retains the best aspects of the \emph{Chained-Scan} architecture, while eliminating the need for forward progress guarantees. It is designed to operate on arbitrary hardware, support arbitrary monoids, process inputs of arbitrary size, and support arbitrary 32-bit and 64-bit data types.
+
+What is the exact problem that is being solved?
+Why is this problem important?
+Why is this problem hard / why aren't the current solutions to this problem sufficient? (In our case, that's going to be an assertion that current techniques don't work without fpg, but we will certainly not explain it in detail at this point; that's going to be a whole section later in the paper.)
+What are the precise contributions of the work?
+
+Scan is one of the most ubiquitous problems in GPGPU computing, with applications including sorting, sparse matrix etc.  Although the state of the art prefix scan, Merrill and Garland's \emph{Decoupled Lookback}, achieves near-ideal performance on NVIDIA hardware and implemented in CUDA, it relies on a set of architectural and language-specific guarantees that no longer hold once outside of the NVIDIA ecosystem, most notably a property of a device's scheduler known as a \emph{forward progress guarantee}, without which \emph{Decoupled Lookback} is liable to starve indefinitely.
+
+\emph{Decoupled Lookback} belongs to a class of scan architectures known as \emph{Chained Scan}, which hybridizes serial and parallel strategies to read and write each element exactly once, achieving the theoretical minimum global memory movement of $O(2n)$. When this algorithm fully saturates the device’s memory bandwidth, it reaches the \emph{Speed of Light} (SOL) performance limit, the theoretical peak throughput constrained by available bandwidth and memory latency. As the compute capabilities of major GPUs have grown, there has been increasing interest in bringing Chained Scan techniques into broader use. However, the absence of a critical scheduling guarantee has forced developers to revert to slower techniques to maintain compatibility across architectures.
+
 \subsection{Goals}
 This work is guided by two main goals:
 \begin{enumerate}
@@ -157,18 +158,11 @@ This work is guided by two main goals:
   \item \textbf{Performance}: we aim for near speed-of-light execution to the greatest extent possible allowed by the underlying hardware and programming model.
 \end{enumerate}
 
-\noindent
-To ground these objectives, we select the WebGPU shading language (WGSL) and the WebGPU standard as our target environment. WGSL is a meta-level shading language which is translated and compiled as necessary for backend graphics APIs---D3D12, Vulkan, and Metal---and as such, WGSL implementations are bound by the minimum capability across all backends. Because WGSL must operate within this limited capability space, it inherently embodies the challenge of portability.
-
 \subsection{Non Goals}
 Although our goal is to create a fully portable and highly performant scan implementation, we are constrained by underlying hardware platforms and programming models. As discussed in more detail in \emph{Limits on the Speed-of-Light}, not all architectures offer atomic operations that are sufficiently fast enough or scheduling models that are sufficiently fair enough to attain speed-of-light performance, and thus we cannot guarantee such performance. Although we are cognizant of the risks posed by subgroup divergence, subgroup functions in shading languages do not allow explicit divergence control,\footnote{For example, CUDA allows developers to explicitly provision subgroup functions with a mask of the threads that will participate in them.} placing a solution to subgroup divergence issues outside our scope. Lastly, we do not investigate alternative $O(2n)$ scan architectures beyond \emph{Chained-Scan}.
 
 \subsection{Contributions}
-\begin{enumerate}
-  \item Decoupled-Fallback
-  \item Split-Method
-  \item Subgroup-Size Agnostic stuff
-\end{enumerate}
+We present \textit{Chained Scan with Decoupled Lookback and Decoupled Fallback}, a fully portable prefix scan capable of reaching speed of light performance without FPG, suitable for the shading language environment (graphics APIs?), and implemented in WGSL. (REWORD THIS) Additionally, we introduce a tile state representation for \emph{Chained-Scans} that does not rely on 64-bit atomics or memory barriers for correctness, along with a subgroup-size-agnostic intra-workgroup implementation.
 
 \section{Background}
 \subsection{Virtualization and Scheduling in the GPU programming model}
@@ -526,19 +520,19 @@ We configure workgroups with a size $w = 256$ threads, where each thread process
 \end{table}
 
 \subsection{Performance Comparison}
-\subsubsection{Performance Versus Contemporary Implementations:}
-We first compare \emph{Decoupled Fallback} (\emph{CSDLDF}) to the \emph{Decoupled Lookback} (\emph{CSDL}) implementation found in NVIDIA’s CUB library, using the 2080 Super only. To assess the impact of differing APIs, we also provide the results of an identical \emph{CSDLDF} in CUDA.\footnote{Due to WebGPU’s 128MB storage buffer limit, our maximum test size is limited to $2^{25}$ 32-bit elements.}
+\subsubsection{Cross-API Performance Versus Contemporary Implementations}
+We first compare \emph{Decoupled Fallback} (\emph{DF}) to two key benchmarks: \emph{Memcpy}\textdagger{~\ref{sec:memcpy}} and the \emph{Decoupled Lookback} (\emph{DL}) implementation found in NVIDIA’s CUB library, using the 2080 Super only. To isolate the impact of differing APIs, we implement and evaluate \emph{DF} in both CUDA and Dawn.\footnote{Due to WebGPU’s 128MB storage buffer limit, our maximum test size is limited to $2^{25}$ 32-bit elements.} \emph{Memcpy} serves as a performance reference, as it shares the same $2n$ global memory movement as \emph{DF} but lacks compute overhead, ensuring it remains purely memory bandwidth bound.
 
-Cross-API comparisons remain challenging, as despite being nearly identical at a high level, the CUDA implementation consistently outperforms its Dawn counterpart. Additionally, the performance cost of \emph{Decoupled Fallback} is most evident in our CUDA implementation when the entire input fits within the 2080 Super’s 4MB L2 cache, where increased synchronization and compute overhead slightly reduce throughput. However, at larger input sizes, where memory accesses extend beyond the cache, \emph{CSDLDF} achieves parity with CUB.
+Cross-API comparisons remain challenging, as our CUDA implementation consistently outperforms its Dawn counterpart despite near-identical high-level implementations. The performance cost of \emph{DF} is most pronounced in CUDA when the entire input fits within the 2080 Super’s 4MB L2 cache, where reduced global memory latency exposes \emph{DF's} increased synchronization and compute overhead compared to CUB. However, at larger input sizes, where memory accesses exceed cache capacity, \emph{DF} reaches parity with CUB and achieves \emph{Memcpy} speeds.
 
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{graphics/cuda_plot.pdf}
-  \caption{(This graph can be provided with or without Memcpy speeds. I am thinking without, as it's currently very busy. \john{It's OK to include it, I think. I would make the memcpy lines two different shades of gray (not colored) and I would also make them dashed, just to ease the visual clutter. I would also consider a dotted horizontal line at the speed of light of the device. Also I would pick colors for the CSDLDF that are not so close together (you will dig colorbrewer.org).}) Performance versus CUB (NVIDIA 2080 Super)}
+  \caption{Performance versus CUB (NVIDIA 2080 Super)}
 \end{figure}
 
 \subsubsection{Same-API Performance Versus Baseline Measures}
-We next compare \emph{CSDLDF} against two key benchmarks: \emph{Memcpy}\textdagger{~\ref{sec:memcpy}} and \emph{Reduce then Scan}\textdagger{~\ref{sec:rts}} (\emph{RTS}). \emph{RTS} serves as a baseline to demonstrate the performance gains of our approach over the previous FPG-constrained technique. \emph{Memcpy} is included as a point of reference, as it shares the same $2n$ global memory movement as \emph{Decoupled Fallback}, and without compute overhead, is guaranteed to be memory bandwidth bound.
+We next compare \emph{DF} against \emph{Reduce then Scan}\textdagger{~\ref{sec:rts}} (\emph{RTS}), which serves as a baseline to highlight the performance improvements of our approach over the prior FPG-constrained technique. This evaluation is conducted using Dawn across the full range of tested devices.
 
 \begin{table*}
   \centering
@@ -547,24 +541,24 @@ We next compare \emph{CSDLDF} against two key benchmarks: \emph{Memcpy}\textdagg
     Metric & Intel HD620 & ARM Mali-G78 MP20 & Apple M3 & Apple M1 Max & Nvidia 2080 Super & AMD 7900 XT \\
     \midrule
     Avg \emph{Memcpy} (32-bit ele/sec $\cdot 10^9$)  & 1.50   & 2.48  & 10.25  & 38.62  & 54.39  & 72.28  \\
-    Avg \emph{CSDLDF} (32-bit ele/sec $\cdot 10^9$)   & 1.49   & 2.79  & 10.22  & 38.84  & 53.29  & 94.60  \\
+    Avg \emph{DF} (32-bit ele/sec $\cdot 10^9$)   & 1.49   & 2.79  & 10.22  & 38.84  & 53.29  & 94.60  \\
     Avg \emph{RTS} (32-bit ele/sec $\cdot 10^9$)      & 1.06   & 2.02  & 6.81   & 25.13  & 35.90  & 61.49  \\
-    \emph{CSDLDF}/\emph{Memcpy}       & 99.1\%    & 112.8\%  & 99.8\%    & 100.6\%   & 98.0\%    & 130.9\%   \\
-    \emph{CSDLDF}/\emph{RTS}          & 140.2\%   & 138.5\%  & 150.2\%   & 154.5\%   & 148.4\%   & 153.8\%   \\
+    \emph{DF}/\emph{Memcpy}       & 99.1\%    & 112.8\%  & 99.8\%    & 100.6\%   & 98.0\%    & 130.9\%   \\
+    \emph{DF}/\emph{RTS}          & 140.2\%   & 138.5\%  & 150.2\%   & 154.5\%   & 148.4\%   & 153.8\%   \\
     Avg Spins per Wg    & 0.305    & 1.477    & 0.606    & 0.604    & 0.419    & 0.148    \\
     Avg Lookback Length per Wg  & 1.726    & 3.537    & 3.415    & 10.782   & 13.046   & 20.722   \\
     Avg Total Fallbacks Initiated      & 254.662   & 2504.704  & 365.546   & 990.962   & 86.400   & 9.308   \\
     Avg Total Successful Insertions    & 6.170     & 122.436   & 4.612     & 0.012    & 0.284    & 0.020    \\
     \bottomrule
   \end{tabular*}
-  \caption{\emph{Decoupled Fallback} performance, 32-bit Inclusive Prefix Sum, Input Size $\mathbf{2^{25}}$}
+  \caption{\emph{Decoupled Fallback} performance, 32-bit Inclusive Prefix Sum, $\mathbf{2^{25}}$ 32-bit elements}
   \label{tab:results}
 \end{table*}
 
-As shown in Table~\ref{tab:results}, \emph{CSDLDF} achieves at least a $\sim$40\% speedup over \emph{RTS} across all tested devices—closely approaching the theoretically expected $O(3n)/O(2n)$ 50\% speedup, except on the ARM Mali. Since \emph{Memcpy} is purely memory-bandwidth-bound, \emph{CSDLDF} should ideally match its throughput. This holds across most devices, except for the AMD 7900 XT and ARM Mali, where \emph{CSDLDF} outperforms \emph{Memcpy}, suggesting that the additional compute latency counterintuitively improves memory access patterns by reducing paging. \john{I have no idea what this previous phrase means.} \thomas{In my head, if you read from location A, and then write immediately to B, you need room in your cache for A and B because the workgroup doesn't execute in lockstep. If you read, do just the right amount of work, then write B, you only need to hold A or B because the compute latency ensures that all the work from A is done before you get to B.}On the ARM Mali, \emph{CSDLDF} appears to underperform, achieving only a 36\% speedup instead of the expected 50\%. However, as its performance is nearly identical to \emph{Memcpy}, this indicates that the implementation is memory-bandwidth-bound, limiting further gains.
+As shown in Table~\ref{tab:results}, \emph{DF} achieves at least a $\sim$40\% speedup over \emph{RTS} across all tested devices, closely approaching the theoretically expected $O(3n)/O(2n)$ 50\% speedup, except on the ARM Mali. \emph{DF} closely matches \emph{Memcpy} across most devices, deviating only on the AMD 7900 XT and ARM Mali, where \emph{DF} outperforms \emph{Memcpy} by 30.9\% and 12.8\%, respectively. This suggests that additional compute latency may mitigate paging effects by separating loads from stores. On the ARM Mali, \emph{DF} appears to underperform, achieving only a 36\% speedup instead of the expected 50\%. However, its nearly identical performance to \emph{Memcpy}, indicates that the implementation is memory-bandwidth-bound, limiting further gains.
 
 \subsection{Decoupled Fallback Statistics}
-To better understand how devices interact with \emph{CSDLDF}, we also collect a number of statistics during its execution:
+To better understand how devices interact with \emph{DF}, we also collect a number of statistics during its execution:
 \begin{itemize}
   \item \textbf{Spins per Workgroup:} How many times does a workgroup make a waiting spin?
   \item \textbf{Lookback Length per Workgroup:} How many work tiles does a workgroup traverse to complete \emph{Chained-Propagation}?
@@ -574,8 +568,8 @@ To better understand how devices interact with \emph{CSDLDF}, we also collect a 
 Despite significantly different absolute occupancies, the number of waiting spins remains consistent across devices. Likewise, lookback length is stable and remains well below the theoretical occupancy bound. Expressed as a percentage of occupancy, it remains under 10\% for all devices, except for the Intel HD620, where its elevated value is likely an artifact of its low absolute occupancy. Most notably, the devices lacking FPG---Apple M3 and M1 Max---do not exhibit significantly higher successful insertion rates than the others, suggesting that true deadlocking is a rare occurrence.
 
 \subsection{Simulated Blocking}\label{sec:Sim-Blocking}
-To demonstrate the resilience of our technique to unfair schedulers, we simulate fallback rates significantly higher than those observed organically by intentionally forcing fallbacks through the omission of work tile reductions. Beginning with infrequent omissions---1 in 512 work tiles---we progressively increase the rate to near-continuous levels, reaching 1 in 2 work tiles.
-\begin{figure*}[t]
+To demonstrate the resilience of our technique to unfair schedulers, we simulate fallback rates significantly higher than those observed organically by intentionally omitting work tile reduction updates. Because these updates are skipped, the immediate successor workgroup reads \emph{Not Ready}, spinning and triggering a fallback. Starting with infrequent omissions---1 in 512 work tiles---we progressively increase the omission rate to near-continuous levels---1 in 2 work tiles----recording \emph{DF} statistics at each step.
+\begin{figure*}
   \centering
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
@@ -621,7 +615,7 @@ As shown in Figure~\ref{fig:execution_time}, performance relative to a no-omissi
 \subsection{Future Work}
 Sorting is one of the most notable beneficiaries of single-pass scan and, by extension, \emph{Decoupled Fallback}. The current state-of-the-art algorithm, Adinets and Merrill’s \emph{Onesweep}~\cite{adinets2022onesweepfastersignificantdigit}, is an 8-bit least-significant-digit radix sort, where single-pass scan minimizes data movement during digit-binning passes. However, due to its compute-intensive nature and large $radixDigit$-sized monoid, it is unclear whether \emph{Decoupled Fallback} will map well to sorting or if new techniques are needed.
 
-Our reexamination of \emph{Chained Scan} with dynamic assignment raises fundamental questions about GPU progress models: Can all HSA algorithms be converted to OBE via dynamic assignment? Are there cases, excluding atomic memory errors, where LOBE guarantees termination but dynamic assignment with OBE does not? \textbf{Is OBE all you need}?
+Our reexamination of \emph{Chained Scan} with dynamic assignment raises fundamental questions about the GPU progress models proprosed by Sorensen et al. in \cite{sorensen2021}: Can all HSA algorithms be converted to OBE via dynamic assignment? Are there cases, excluding atomic memory errors, where LOBE guarantees termination but dynamic assignment with OBE does not? Is OBE all you need?
 
 \subsection{Conclusion}
 In this paper, we presented \emph{Decoupled Fallback}, a single-pass \emph{Chained-Scan} capable of reaching SOL performance under all progress models and suitable for implementation within the constraints of contemporary shading languages. Our approach mantains minimal data movement while ensuring robust execution across diverse GPU architectures.
@@ -644,7 +638,8 @@ We provide our artifact in the following GitHub repository: \thomas{Will anonymi
     \toprule
     Device                                & \makecell{Memory                   \\ Bandwidth \\ (GB/s)} & \makecell{Expected \\ Throughput \\ (32-bit ele/sec)} \\
     \midrule
-    Intel HD620 (Single-/Dual-Channel)    & 17.1 / 34.1      & 2.13e9 / 4.26e9 \\
+    Intel HD620 Single-Channel            & 17.1             & 2.13e9          \\
+    Intel HD620 Dual-Channel              & 34.1             & 4.26e9          \\
     ARM Mali-G78 MP20 / Tensor (Pixel 6a) & 51.2             & 6.40e9          \\
     Apple M3                              & 102.4            & 12.8e9          \\
     Apple M1 Max                          & 409.6            & 51.2e9          \\
@@ -652,10 +647,10 @@ We provide our artifact in the following GitHub repository: \thomas{Will anonymi
     AMD 7900 XT                           & 800              & 100.0e9         \\
     \bottomrule
   \end{tabular}
-  \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second). \john{Suggest splitting the Intel line into two lines, one for single and one for dual? A cleaner table, I think.}}
+  \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second).}
   \label{tab:memory_bandwidth}
 \end{table}
-Although all backend APIs support \emph{timestamp queries inside encoders}, Apple GPUs do not, so we are forced to implement our own \emph{Memcpy} kernel to measure memory bandwidth, as opposed to simply timing an API's copy buffer operation. It is well known that \emph{observed} peak memory bandwidth, tends to diverge from vendor-listed peak bandwidth, so for completeness we list these figures above. We make a number of observations:
+Although all of Dawn's backend APIs support \emph{timestamp queries inside encoders}, Apple GPUs do not, so we are forced to implement our own \emph{Memcpy} kernel to measure memory bandwidth, as opposed to simply timing an API's copy buffer operation. It is well known that \emph{observed} peak memory bandwidth, tends to diverge from vendor-listed peak bandwidth, so for completeness we list these figures above. We make a number of observations:
 \begin{itemize}
   \item \textbf{Intel HD620:} As our HD620 laptop is only equipped with a single memory DIMM, its peak bandwidth is limited to the lower bound, 2.13e9 ele/sec. Thus, our observed bandwidth of 1.498e9 is reasonable.
   \item \textbf{ARM Mali-G78 MP20 / Pixel 6a (Tensor):} The observed throughput is significantly lower than expected, despite a vendor-listed bandwidth of 6.40e9 ele/sec. The cause of this discrepancy remains unclear, but we note other developers have observed similar speeds.
