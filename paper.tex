@@ -231,14 +231,14 @@ A \emph{forward-progress guarantee} (FPG) ensures that all occupant subgroups (o
   \item \textbf{Heterogeneous System Architecture (HSA)}: The workgroup with the lowest ID that has not yet terminated.
   \item \textbf{Linear OBE (LOBE)}: Workgroups that have made at least one step, and any workgroup with a lower ID than a workgroup that has made at least one step.
 \end{itemize}
-Their findings demonstrated that Apple and ARM GPUs do not support LOBE, contradicting their prior assumptions in \cite{sorensen2018}. 
+Their findings demonstrated that Apple and ARM GPUs do not support LOBE, contradicting their prior assumptions in \cite{sorensen2018}.
 
-This has direct implications for \emph{Chained Scan}, which was \emph{previously} classified as a \emph{one-way producer-consumer} (PC) HSA algorithm: a workgroup only consumes from lower-ID counterparts, ensuring that execution proceeds in a strictly ordered fashion. Under HSA, this structure guarantees termination, as the lowest ID workgroup is always given forward progress. If subgroups from the lowest ID workgroup are not guaranteed execution, then any dependent subgroup may spin indefinitely, waiting on an update that never arrives.   
+This has direct implications for \emph{Chained Scan}, which was \emph{previously} classified as a \emph{one-way producer-consumer} (PC) HSA algorithm: a workgroup only consumes from lower-ID counterparts, ensuring that execution proceeds in a strictly ordered fashion. Under HSA, this structure guarantees termination, as the lowest ID workgroup is always given forward progress. If subgroups from the lowest ID workgroup are not guaranteed execution, then any dependent subgroup may spin indefinitely, waiting on an update that never arrives.
 
 However, the HSA classification relies on the assumption that \emph{Chained Scan} follows scheduler-assigned virtualized IDs rather than dynamically acquired atomic-bumped IDs, as used by both \emph{StreamScan} and \emph{Decoupled Lookback}. Since virtual IDs do not necessarily match atomic IDs, HSA does not guarantee termination---the lowest virtual ID may not be scheduled first, potentially leading to starvation.
 
 LOBE adds an additional condition on top of OBE: lower-ID workgroups must be scheduled before higher-ID ones. However, this condition is unnecessary for \emph{Chained Scan} for two reasons: (1) We already guarantee serial ordering of work items through atomic bumping, making OBE sufficient. (2) \emph{Chained Scan} only requires forward progress after a workgroup has atomically acquired its tile index. By definition, a workgroup that has acquired its index must be occupant on a physical processor (i.e., it has made at least one execution step); thus, OBE guarantees forward progress.
- 
+
 \begin{table}
   \small
   \centering
@@ -501,7 +501,7 @@ We configure workgroups with a size $w = 256$ threads, where each thread process
     \midrule
     Intel  & HD Graphics 620        & \textbf{Yes} & 9   & 8--32  \\
     ARM    & Mali-G78 MP20          & \textbf{No}  & 40  & 16  \\
-    Apple  & M3     (??? Cores)     & \textbf{No}  & 80  & 32  \\
+    Apple  & M3     (10 Cores)      & \textbf{No}  & 80  & 32  \\
     Apple  & M1 Max (32 Cores)      & \textbf{No}  & 160 & 32  \\
     NVIDIA & GeForce RTX 2080 Super & \textbf{Yes} & 192 & 32  \\
     AMD    & Radeon RX 7900 XT      & \textbf{Yes} & 420 & 32--64  \\
