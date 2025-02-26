@@ -39,7 +39,7 @@
 %% For submission and review of your manuscript please change the
 %% command to \documentclass[manuscript, screen, review]{acmart}.
 
-\documentclass[sigconf]{acmart}
+\documentclass[acmsmall, manuscript, screen, review, anonymous]{acmart}
 %%
 %% \BibTeX command to typeset BibTeX logo in the docs
 \AtBeginDocument{%
@@ -47,12 +47,11 @@
     Bib\TeX}}}
 
 \setcopyright{acmlicensed}
-\copyrightyear{2018}
-\acmYear{2018}
+\copyrightyear{2025}
+\acmYear{2025}
 \acmDOI{XXXXXXX.XXXXXXX}
-\acmConference[Conference acronym 'XX]{Make sure to enter the correct
-  conference title from your rights confirmation emai}{June 03--05,
-  2018}{Woodstock, NY}
+\acmConference[SPAA '25]{37th ACM Symposium on Parallelism in Algorithms and Architectures}{July 28--August 1,
+  2025}{Portland, OR, USA}
 \acmISBN{978-1-4503-XXXX-X/18/06}
 
 \usepackage[ruled,vlined]{algorithm2e}
@@ -244,11 +243,11 @@ LOBE adds an additional condition on top of OBE: lower-ID workgroups must be sch
   \centering
   \begin{tabular}{lcccc}
     \toprule
-    Algorithm       & LOBE & OBE & HSA & Unfair \\
+    Algorithm         & LOBE & OBE & HSA & Unfair \\
     \midrule
-    CS (Workgroup ID)  & Yes & No  & Yes & No  \\
-    CS (Atomic ID)        & Yes & Yes & No  & No  \\
-    Ours               & Yes & Yes & Yes & Yes \\
+    CS (Workgroup ID) & Yes  & No  & Yes & No     \\
+    CS (Atomic ID)    & Yes  & Yes & No  & No     \\
+    Ours              & Yes  & Yes & Yes & Yes    \\
     \bottomrule
   \end{tabular}
   \caption{Comparison of Chained Scan (CS) Variants and Our Implementation Across Progress Models.\label{tab:progress_models}}
@@ -609,6 +608,9 @@ In this paper, we presented \emph{Decoupled Fallback}, a single-pass \emph{Chain
 \begin{acks}
 \end{acks}
 
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{bib}
+
 \clearpage
 \appendix
 \section{Artifact}
@@ -622,15 +624,15 @@ We provide our artifact in the following GitHub repository: \thomas{Will anonymi
   \centering
   \begin{tabular}{l r r}
     \toprule
-    Device                                & \makecell{Memory                   \\ Bandwidth \\ (GB/s)} & \makecell{Expected \\ Throughput \\ (32-bit ele/sec)} \\
+    Device                                & \makecell{Memory           \\ Bandwidth \\ (GB/s)} & \makecell{Expected \\ Throughput \\ (32-bit ele/sec)} \\
     \midrule
-    Intel HD620 Single-Channel            & 17.1             & 2.13e9          \\
-    Intel HD620 Dual-Channel              & 34.1             & 4.26e9          \\
-    ARM Mali-G78 MP20 / Tensor (Pixel 6a) & 51.2             & 6.40e9          \\
-    Apple M3 (10 Cores)                   & 102.4            & 12.8e9          \\
-    Apple M1 Max (32 Cores)               & 409.6            & 51.2e9          \\
-    Nvidia 2080 Super                     & 496              & 62.0e9          \\
-    AMD 7900 XT                           & 800              & 100.0e9         \\
+    Intel HD620 Single-Channel            & 17.1             & 2.13e9  \\
+    Intel HD620 Dual-Channel              & 34.1             & 4.26e9  \\
+    ARM Mali-G78 MP20 / Tensor (Pixel 6a) & 51.2             & 6.40e9  \\
+    Apple M3 (10 Cores)                   & 102.4            & 12.8e9  \\
+    Apple M1 Max (32 Cores)               & 409.6            & 51.2e9  \\
+    Nvidia 2080 Super                     & 496              & 62.0e9  \\
+    AMD 7900 XT                           & 800              & 100.0e9 \\
     \bottomrule
   \end{tabular}
   \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second).\label{tab:memory_bandwidth}}
@@ -647,9 +649,6 @@ Although all of Dawn's backend APIs support \emph{timestamp queries inside encod
 \subsection{Baseline Comparisons: \emph{Reduce then Scan}}%
 \label{sec:rts}
 As we desire the most competitve baseline possible, our \emph{RTS} kernels employ the same intra-workgroup scan strategy and tuning parameters as \emph{DF}. Initially, we adopted Merrill and Grimshaw's~\cite{Merrill2009} workgroup raking approach for inter-workgroup processing. However, empirical testing revealed that raking was consistently outperformed—by up to $\sim$15\% on lower-end devices—by a simpler approach that processes the spine serially with a single workgroup. Furthermore, our \emph{RTS} performance closely aligns with the theoretically expected $O(3n)$ global memory movement.
-
-\bibliographystyle{ACM-Reference-Format}
-\bibliography{bib}
 
 \end{document}
 \endinput
