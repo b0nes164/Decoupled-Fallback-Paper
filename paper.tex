@@ -147,11 +147,11 @@
 \section{Introduction}
 Scan is one of the most ubiquitous operations in GPGPU computing, with applications in sorting~\cite{adinets2022onesweepfastersignificantdigit}, sparse matrix operations~\cite{BellGarland2009}, and more. The current state-of-the-art prefix scan algorithm, Merrill and Garland's \emph{Decoupled Lookback}, achieves near-ideal performance on NVIDIA hardware via CUDA by leveraging the \emph{Chained Scan} architecture. This approach hybridizes serial and parallel strategies to read and write each element exactly once, achieving the theoretical minimum global memory movement of $O(2n)$. \emph{Chained Scans} that fully saturate device memory bandwidth reach the \emph{Speed of Light} (SOL) performance limit---the theoretical maximum throughput constrained only by bandwidth and memory latency. However, \emph{Decoupled Lookback} relies on architectural and language-specific guarantees provided by the NVIDIA ecosystem, most notably a device scheduler property known as a \emph{forward progress guarantee}; without this guarantee, it risks indefinite starvation.
 
-As the compute capabilities of major graphics APIs---Vulkan, Direct3D, and Metal---have grown, there has been increasing interest in adapting \emph{Decoupled Lookback} beyond CUDA for broader adoption in real-time graphics and GPGPU computing. However, portable implementation is constrained by both hardware and API limitations. In terms of hardware, some GPU schedulers—most notably Apple’s M series and ARM—lack forward progress guarantees, and subgroup sizes vary across architectures. In terms of API design, the absence of 64-bit atomic operations and explicit memory barriers further complicates implementation, as both are integral to \emph{Decoupled Lookback}.
+As the compute capabilities of major graphics APIs---Vulkan, Direct3D, and Metal---have grown, there has been increasing interest in adapting \emph{Decoupled Lookback} beyond CUDA for broader adoption in real-time graphics and GPGPU computing. However, portable implementation is constrained by both hardware and API limitations. In terms of hardware, some GPU schedulers—most notably Apple's M series and ARM—lack forward progress guarantees, and subgroup sizes vary across architectures. In terms of API design, the absence of 64-bit atomic operations and explicit memory barriers further complicates implementation, as both are integral to \emph{Decoupled Lookback}.
 
 This work is guided by two main goals. (1) \textbf{Portability:} We aim to develop a scan implementation that retains the benefits of the \emph{Chained-Scan} architecture while being suitable for a diverse range of hardware vendors and architectures, including those without forward progress guarantees (FPG) or support for 64-bit atomics. \textbf{Performance:} We aim for near speed-of-light execution to the greatest extent possible allowed by the underlying hardware and programming model.
 
-However, certain aspects fall outside the scope of this work. \textbf{Performance guarantees} are not universally attainable, as not all architectures offer atomic operations that are sufficiently fast or scheduling models that are sufficiently fair to attain speed-of-light performance. \textbf{Subgroup divergence} is another challenge we acknowledge but do not address directly, as shading languages do not provide explicit divergence control like CUDA’s subgroup masking mechanisms. Lastly, we do not investigate alternative $O(2n)$ scan architectures beyond \emph{Chained-Scan}.
+However, certain aspects fall outside the scope of this work. \textbf{Performance guarantees} are not universally attainable, as not all architectures offer atomic operations that are sufficiently fast or scheduling models that are sufficiently fair to attain speed-of-light performance. \textbf{Subgroup divergence} is another challenge we acknowledge but do not address directly, as shading languages do not provide explicit divergence control like CUDA's subgroup masking mechanisms. Lastly, we do not investigate alternative $O(2n)$ scan architectures beyond \emph{Chained-Scan}.
 
 We present \emph{Decoupled Fallback}, a fully portable prefix scan capable of achieving speed-of-light performance without requiring forward progress guarantees (FPG). Our implementation is designed for compatibility with shading languages, making it suitable for modern graphics APIs and implemented in the WebGPU Shading Language (WGSL). Our method incorporates a novel tile state representation that eliminates reliance on 64-bit atomics or memory barriers while maintaining correctness, along with a subgroup-size-agnostic intra-workgroup implementation that enables subgroup acceleration across all architectures.
 
@@ -167,7 +167,8 @@ Parallel programs in general require synchronization between multiple threads (t
 \subsubsection{Fairness and Progress}
 Because multiple workgroups may reside on a single multiprocessor, two key issues arise at the subgroup scheduling level: \emph{fairness}---how evenly execution resources are distributed among subgroups---and \emph{progress guarantees}---ensuring that subgroups eventually make progress towards termination. However, the term ``fairness'' is used differently across the literature, leading to potential confusion. Sorensen et al.~\cite{sorensen2016,sorensen2018,sorensen2021}, whose work provides the most comprehensive taxonomy of progress models to date, use ``fairness'' specifically to describe differing levels of progress guarantees. In contrast, NVIDIA publications~\cite{4523358,Merrill2016} define ``fairness'' in terms of the distribution of execution resources among subgroups. In this work, we adopt NVIDIA's terminology.
 
-\subsection{The Scan Primitive}\label{sec:the-scan-primitive}
+\subsection{The Scan Primitive}%
+\label{sec:the-scan-primitive}
 The study of \emph{scan} (\emph{parallel prefix}) networks traces back to the design of carry-lookahead adder circuits and beyond~\cite{5219801,10.5555/1098666}. A scan is typically defined on a monoid \( M \), characterized by a binary reduction operator \( \oplus \) and an identity element \( \varepsilon \). The binary operator \( \oplus \) satisfies the closure property \( \forall a, b \in M, \ (a \oplus b) \in M \) and has an identity element \( \exists \varepsilon \in M, \ \forall a \in M, \ \varepsilon \oplus a = a \). To allow parallelization, \( \oplus \) must be associative, but it is not necessarily commutative, as demonstrated in structures like the \emph{bicyclic semigroup}~\cite{Clifford1961}\footnote{Despite its name, this is a monoid.} and Rabin-Karp's \emph{second fingerprinting method for string matching}~\cite[Section 6]{Karp:1987:ERP}. In a scan, the result at the \( n \)-th element is the reduction of the preceding subsequence of elements. If the subsequence includes the \( n \)-th element, it is called \emph{inclusive}; if it excludes the \( n \)-th element, it is called \emph{exclusive}. The most common scan type is the prefix sum, where \( \oplus \) is addition. For example:
 \[
   x = [x_1, x_2, x_3, \dots, x_n] \ \ \ \ \ \ \ y = [1, 1, 1, 1, 1]
@@ -236,7 +237,7 @@ This has direct implications for \emph{Chained Scan}, which was \emph{previously
 
 However, the HSA classification relies on the assumption that \emph{Chained Scan} follows scheduler-assigned virtualized IDs rather than dynamically acquired atomic-bumped IDs, as used by both \emph{StreamScan} and \emph{Decoupled Lookback}. Since virtual IDs do not necessarily match atomic IDs, HSA does not guarantee termination---the lowest virtual ID may not be scheduled first, potentially leading to starvation.
 
-LOBE adds an additional condition on top of OBE: lower-ID workgroups must be scheduled before higher-ID ones. However, this condition is unnecessary for \emph{Chained Scan} for two reasons: (1) We already guarantee serial ordering of work items through atomic bumping, making OBE sufficient. (2) \emph{Chained Scan} only requires forward progress after a workgroup has atomically acquired its tile index. By definition, a workgroup that has acquired its index must be occupant on a physical processor (i.e., it has made at least one execution step); thus, OBE guarantees forward progress.
+LOBE adds an additional condition on top of OBE\@: lower-ID workgroups must be scheduled before higher-ID ones. However, this condition is unnecessary for \emph{Chained Scan} for two reasons: (1) We already guarantee serial ordering of work items through atomic bumping, making OBE sufficient. (2) \emph{Chained Scan} only requires forward progress after a workgroup has atomically acquired its tile index. By definition, a workgroup that has acquired its index must be occupant on a physical processor (i.e., it has made at least one execution step); thus, OBE guarantees forward progress.
 
 \begin{table}
   \small
@@ -274,7 +275,7 @@ Our first attempt \raph{we'll add the cite post-review} at implementing a \emph{
 
 \begin{algorithm}
   \small
-  \SetAlgoLined
+  \SetAlgoLined%
   \KwGlobalIn{%
     $\textit{in}[]$,
     $\textit{out}[]$,
@@ -409,7 +410,7 @@ Workgroups operate independently; each is responsible for updating its own tile 
 We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm from the perspective of a single workgroup. The details of tile state encoding and atomic updates are discussed in the following section and may vary depending on the data type, so for simplicity, we describe the operation as being performed by the \emph{first thread} of the workgroup:
 \begin{figure}
   \centering
-  \includegraphics[width=\linewidth]{graphics/FlowChart.pdf}
+  \includegraphics[height=\textheight]{graphics/FlowChart.pdf}
   \caption{Flow Chart Representation of Decoupled Fallback.\label{fig:decoupled_fallback}}
 \end{figure}
 \begin{enumerate}
@@ -490,20 +491,18 @@ The atomic splitting technique generalizes to monoids of arbitrary size.
 We configure workgroups with a size $w = 256$ threads, where each thread processes $p = 4$ vectors of size 4, resulting in 16 elements per thread and a total work tile size of $t = 4096$. We find a maximum spin count of 4 effectively balances responsiveness to blocking while minimizing false-positive fallbacks. As the size of the local spine is inversely proportional to the subgroup size, we allocate sufficient shared memory to accommodate the WebGPU standard's minimum subgroup size of 4. Due to our overall thriftiness with shared memory, total usage remains modest at only $\sim$1 KB\@. For all tests, we use an input size of $2^{25}$ and an inclusive prefix sum. Our test hardware, listed POSITIONAL-RELATION, spans a wide range of FPG and performance capabilities. We empirically find that Google Chrome's native implementation of WebGPU, Dawn, provides the best performance and use it for all testing, except on the Arm-Mali GPU, which requires Android native, necessitating the use of WGPU\@.\footnote{To keep the perforamance as close to Dawn as possible, we translate our WGSL code with Dawn's Tint transpiler, and provide the raw SPIR-V to WGPU\@.}
 \begin{table}
   \centering
-  \small
-  \setlength{\tabcolsep}{1pt}
-  \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}} l l c r r}
+  \begin{tabular}{l l c r r}
     \toprule
-    Vendor & Device Name & LOBE & Occupancy & Subgroup Size \\
+    Vendor & Device Name            & LOBE         & Occupancy & Subgroup Size \\
     \midrule
-    Intel  & HD Graphics 620        & \textbf{Yes} & 9   & 8--32  \\
-    ARM    & Mali-G78 MP20          & \textbf{No}  & 40  & 16  \\
-    Apple  & M3     (10 Cores)      & \textbf{No}  & 80  & 32  \\
-    Apple  & M1 Max (32 Cores)      & \textbf{No}  & 160 & 32  \\
-    NVIDIA & GeForce RTX 2080 Super & \textbf{Yes} & 192 & 32  \\
-    AMD    & Radeon RX 7900 XT      & \textbf{Yes} & 420 & 32--64  \\
+    Intel  & HD Graphics 620        & \textbf{Yes} & 9         & 8--32         \\
+    ARM    & Mali-G78 MP20          & \textbf{No}  & 40        & 16            \\
+    Apple  & M3     (10 Cores)      & \textbf{No}  & 80        & 32            \\
+    Apple  & M1 Max (32 Cores)      & \textbf{No}  & 160       & 32            \\
+    NVIDIA & GeForce RTX 2080 Super & \textbf{Yes} & 192       & 32            \\
+    AMD    & Radeon RX 7900 XT      & \textbf{Yes} & 420       & 32--64        \\
     \bottomrule
-  \end{tabular*}
+  \end{tabular}
   \caption{Hardware Specifications of Testing Devices.\label{tab:hardware}}
 \end{table}
 
@@ -524,6 +523,7 @@ We next compare \emph{DF} against \emph{Reduce then Scan}\textdagger{~\ref{sec:r
 
 \begin{table*}
   \centering
+  \small
   \setlength{\tabcolsep}{1pt}
   \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l r r r r r r}
     \toprule
@@ -555,7 +555,8 @@ To better understand how devices interact with \emph{DF}, we collect the followi
 \end{itemize}
 Despite differing occupancy rates, the number of waiting spins remains consistent across devices. Likewise, lookback length is stable and remains well below the theoretical occupancy bound. Expressed as a percentage of occupancy, it remains under 10\% for all devices, except for the Intel HD620, where its elevated value is likely an artifact of its low absolute occupancy. Most notably, the devices lacking FPG---Apple M3 and M1 Max---do not exhibit significantly higher successful insertion rates than the others, suggesting that true deadlocking is a rare occurrence.
 
-\subsection{Simulated Blocking}\label{sec:Sim-Blocking}
+\subsection{Simulated Blocking}%
+\label{sec:Sim-Blocking}
 To demonstrate the resilience of our technique to unfair schedulers, we simulate fallback rates significantly higher than those observed organically by intentionally omitting work tile reduction updates. Because these updates are skipped, the immediate successor workgroup reads \emph{Not Ready}, spinning and triggering a fallback. Starting with infrequent omissions---1 in 512 work tiles---we progressively increase the omission rate to near-continuous levels---1 in 2 work tiles---recording \emph{DF} statistics at each step.
 \begin{figure*}
   \centering
