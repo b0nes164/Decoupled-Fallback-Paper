@@ -166,7 +166,7 @@ On GPU hardware, scheduling is divided into two levels: a \emph{workgroup} sched
 Parallel programs in general require synchronization between multiple threads (those that don't are considered embarrassingly parallel). A standard technique for synchronization is \emph{barriers.} GPUs provide a limited palette of barrier primitives. At the coarsest granularity, \emph{pipeline barriers} fully synchronize both control and memory between multiple kernel launches. However, pipeline barriers are extremely expensive and efficient algorithms strictly minimize their use. At a much finer granularity, \emph{workgroup barriers} provide reasonably efficient synchronization between the threads in a workgroup. However, synchronization between workgroups is more limited. Standard GPU programming environments provide no control barrier between workgroups.\footnote{CUDA recently introduced \emph{Thread Block Cluster} synchronization~\cite{NvidiaCudaGuide}, but it is almost certainly designed to operate within the \emph{Persistent-Thread}~\cite{gupta2012} paradigm, rather than serving as a barrier across an unbounded launch.} The availability of a memory-only barrier varies across GPU environments; it is present in Direct3D and Vulkan, but was missing in versions of Metal prior to 3.2. Because of its non-portability, it is also absent from the WebGPU specification. Even when available, the use of such memory barriers causes performance issues as they are usually implemented as a full cache flush.
 
 \subsubsection{Fairness and Progress}
-Because multiple workgroups may reside on a single multiprocessor, two key issues arise at the subgroup scheduling level: \emph{fairness}---how evenly execution resources are distributed among subgroups---and \emph{progress guarantees}---ensuring that subgroups eventually make progress towards termination. However, the term "fairness" is used differently across the literature, leading to potential confusion. Sorensen et al.~\cite{sorensen2016,sorensen2018,sorensen2021}, whose work provides the most comprehensive taxonomy of progress models to date, use "fairness" specifically to describe differing levels of progress guarantees. In contrast, NVIDIA publications~\cite{4523358,Merrill2016} define "fairness" in terms of the distribution of execution resources among subgroups. In this work, we adopt NVIDIA's terminology.
+Because multiple workgroups may reside on a single multiprocessor, two key issues arise at the subgroup scheduling level: \emph{fairness}---how evenly execution resources are distributed among subgroups---and \emph{progress guarantees}---ensuring that subgroups eventually make progress towards termination. However, the term ``fairness'' is used differently across the literature, leading to potential confusion. Sorensen et al.~\cite{sorensen2016,sorensen2018,sorensen2021}, whose work provides the most comprehensive taxonomy of progress models to date, use ``fairness'' specifically to describe differing levels of progress guarantees. In contrast, NVIDIA publications~\cite{4523358,Merrill2016} define ``fairness'' in terms of the distribution of execution resources among subgroups. In this work, we adopt NVIDIA's terminology.
 
 \subsection{The Scan Primitive}\label{sec:the-scan-primitive}
 The study of \emph{scan} (\emph{parallel prefix}) networks traces back to the design of carry-lookahead adder circuits and beyond~\cite{5219801,10.5555/1098666}. A scan is typically defined on a monoid \( M \), characterized by a binary reduction operator \( \oplus \) and an identity element \( \varepsilon \). The binary operator \( \oplus \) satisfies the closure property \( \forall a, b \in M, \ (a \oplus b) \in M \) and has an identity element \( \exists \varepsilon \in M, \ \forall a \in M, \ \varepsilon \oplus a = a \). To allow parallelization, \( \oplus \) must be associative, but it is not necessarily commutative, as demonstrated in structures like the \emph{bicyclic semigroup}~\cite{Clifford1961}\footnote{Despite its name, this is a monoid.} and Rabin-Karp's \emph{second fingerprinting method for string matching}~\cite[Section 6]{Karp:1987:ERP}. In a scan, the result at the \( n \)-th element is the reduction of the preceding subsequence of elements. If the subsequence includes the \( n \)-th element, it is called \emph{inclusive}; if it excludes the \( n \)-th element, it is called \emph{exclusive}. The most common scan type is the prefix sum, where \( \oplus \) is addition. For example:
@@ -191,7 +191,7 @@ Introduced by Sengupta et al.~\cite{10.5555/1280094.1280110}, \emph{Scan-then-Pr
   \item \textbf{Spine Scan:} The workgroup reductions, collectively forming the \emph{spine}, are gathered and scanned to compute the \emph{root}, resolving dependencies between work tiles. For large scans, this stage is an insignificant amount of work compared to the first and third.
   \item \textbf{Propagation:} Each workgroup retrieves its portion of the root and adds it to the local scan output.
 \end{enumerate}
-The absence of inter-workgroup barriers necessitates separate kernel launches and pipeline barriers for dependency resolution, naturally enforcing this structure. To accommodate arbitrarily large inputs, Sengupta et al. employ recursion, repeatedly applying the three-phase process until the spine fits within a single work tile. Thus, an input of size $n$ and a work tile of size $t$ results in a recursive depth of $\lceil \log_t n \rceil$, and $2\cdot\lceil \log_t n \rceil - 1$ kernel launches. Each recursive step $k$ processes $n/t^k$ tiles, leading to a total of $\sum_{k=1}^{\lceil \log_t n \rceil} n/t^k \approx (n - 1)/(t - 1)$ work tiles over all steps. Since each tile moves $4t$ data ($2t$ local scan, $2t$ propagation), the total global data movement is $O\left(\frac{4t(n - 1)}{t - 1}\right) = O(4n)$.
+The absence of inter-workgroup barriers necessitates separate kernel launches and pipeline barriers for dependency resolution, naturally enforcing this structure. To accommodate arbitrarily large inputs, Sengupta et al.\ employ recursion, repeatedly applying the three-phase process until the spine fits within a single work tile. Thus, an input of size $n$ and a work tile of size $t$ results in a recursive depth of $\lceil \log_t n \rceil$, and $2\cdot\lceil \log_t n \rceil - 1$ kernel launches. Each recursive step $k$ processes $n/t^k$ tiles, leading to a total of $\sum_{k=1}^{\lceil \log_t n \rceil} n/t^k \approx (n - 1)/(t - 1)$ work tiles over all steps. Since each tile moves $4t$ data ($2t$ local scan, $2t$ propagation), the total global data movement is $O\left(\frac{4t(n - 1)}{t - 1}\right) = O(4n)$.
 
 \subsubsection{Reduce-then-Scan}
 If memory bandwidth resources are sufficiently scarce relative to compute, memory-bound algorithms like scan can profit by trading additional computation for reduced memory traffic. This trade-off led to a refinement of the \emph{Scan-Then-Propagate} strategy called \emph{Reduce-Then-Scan}~\cite{10.1145/1375527.1375559, Merrill2009, 10.1109/TPDS.2012.336, 10.5555/2031978.2032029}: by storing only the work tile reduction in global memory during the first phase and performing a redundant scan in the third, it eliminates $n$ global data movement while preserving the three-phase structure:
@@ -225,13 +225,13 @@ Hardware-level considerations underscore the limitations of fixed-launches. On G
 Given these constraints, oversubscription and \emph{Chained Scan} emerge as the more portable and preferred architecture. Furthermore, its single-kernel design and serial ordering make it suitable for \emph{in-situ} operations, benefiting applications such as data deduplication, sparse data compaction, error correction, and interval merging. However, it has a critical limitation: its reliance on a forward-progress guarantee. While NVIDIA GPUs provide this guarantee, data collected by Sorensen et al.~\cite{sorensen2021} shows that ARM and Apple’s GPUs do not. Without forward progress guarantees, \emph{Chained-Scan} is not merely inefficient---it risks indefinite deadlock, causing the application to freeze and rendering the kernel unable to terminate, requiring external intervention to recover.
 
 \subsection{Why does \emph{Chained-Scan} Rely on Forward-Progress Guarantees?}
-A \emph{forward-progress guarantee} (FPG) ensures that all occupant subgroups (of possibly different workgroups) eventually make progress toward termination, preventing indefinite starvation. Prior to Sorensen et al.~\cite{sorensen2018,sorensen2021}, developers largely relied on untested, folklore-like assumptions about GPU progress guarantees. Instead, Sorensen et al. systematically defined and tested three progress models\footnote{Note, a ``workgroup'' in Sorensen et al.'s definition is not necessarily in-flight and occupant on a multiprocessor.}:
+A \emph{forward-progress guarantee} (FPG) ensures that all occupant subgroups (of possibly different workgroups) eventually make progress toward termination, preventing indefinite starvation. Prior to Sorensen et al.~\cite{sorensen2018,sorensen2021}, developers largely relied on untested, folklore-like assumptions about GPU progress guarantees. Instead, Sorensen et al.\ systematically defined and tested three progress models:\footnote{Note, a ``workgroup'' in Sorensen et al.'s definition is not necessarily in-flight and occupant on a multiprocessor.}
 \begin{itemize}
   \item \textbf{Occupancy-Bound Execution (OBE)}: Workgroups that have made at least one execution step.
   \item \textbf{Heterogeneous System Architecture (HSA)}: The workgroup with the lowest ID that has not yet terminated.
   \item \textbf{Linear OBE (LOBE)}: Workgroups that have made at least one step, and any workgroup with a lower ID than a workgroup that has made at least one step.
 \end{itemize}
-Their findings demonstrated that Apple and ARM GPUs do not support LOBE, contradicting their prior assumptions in \cite{sorensen2018}.
+Their findings demonstrated that Apple and ARM GPUs do not support LOBE, contradicting their prior assumptions~\cite{sorensen2018}.
 
 This has direct implications for \emph{Chained Scan}, which was \emph{previously} classified as a \emph{one-way producer-consumer} (PC) HSA algorithm: a workgroup only consumes from lower-ID counterparts, ensuring that execution proceeds in a strictly ordered fashion. Under HSA, this structure guarantees termination, as the lowest ID workgroup is always given forward progress. If subgroups from the lowest ID workgroup are not guaranteed execution, then any dependent subgroup may spin indefinitely, waiting on an update that never arrives.
 
@@ -251,8 +251,7 @@ LOBE adds an additional condition on top of OBE: lower-ID workgroups must be sch
     Ours               & Yes & Yes & Yes & Yes \\
     \bottomrule
   \end{tabular}
-  \caption{Comparison of Chained Scan (CS) Variants and Our Implementation Across Progress Models.}
-  \label{tab:progress_models}
+  \caption{Comparison of Chained Scan (CS) Variants and Our Implementation Across Progress Models.\label{tab:progress_models}}
 \end{table}
 
 \thomas{Is the one-to-one workgroup to multiprocessor rebuttal still neccessary here?}
@@ -330,7 +329,7 @@ Our first attempt \raph{we'll add the cite post-review} at implementing a \emph{
 
 To optimize the fallback operation, we employ three strategies. (1) First, a shared memory \emph{control flag} enables threads performing the lookback to signal the entire workgroup when a fallback is necessary. (2) Next, we limit the number of spins a thread can perform while waiting on a tile; exceeding this threshold triggers a fallback. While this approach risks \emph{false positive} fallbacks---since a late tile is indistinguishable from a genuinely blocking one---the maximum spin count can be tuned to minimize redundant fallbacks. Increasing the spin count lowers false positives but delays progress in true-blocking scenarios. False positives not only increase memory traffic but also consume compute resources that could be scheduled on the same multiprocessor. (3) After completing a fallback, the workgroup attempts to post the reduction result of the blocking tile, preventing redundant fallbacks by subsequent workgroups.
 
-The viability of \emph{Decoupled-Fallback} relies on the same cache locality properties as \emph{Decoupled-Lookback}. Since no subgroup scheduler is perfectly fair, all hardware inherently has a natural fallback rate $f$\!, independent of FPG, due to false-positive fallback operations. As a result, memory bandwidth usage increases (and we expect throughput to decrease) by $O(fn)$ to $O((2 + f)n)$. However, just as serial ordering confines spine memory accesses within an $o$-width sliding window, scan input accesses are likewise constrained to an $ot$-width window, increasing their likelihood of residing in cache. As we later empirically demonstrate in \ref{sec:Sim-Blocking}, this cache residency significantly reduces memory access costs, making fallback operations predominantly compute-bound when reducing a blocking tile. Since pure reduction has minimal overhead, throughput approaches $O(2n)$ on most devices.
+The viability of \emph{Decoupled-Fallback} relies on the same cache locality properties as \emph{Decoupled-Lookback}. Since no subgroup scheduler is perfectly fair, all hardware inherently has a natural fallback rate $f$\!, independent of FPG, due to false-positive fallback operations. As a result, memory bandwidth usage increases (and we expect throughput to decrease) by $O(fn)$ to $O((2 + f)n)$. However, just as serial ordering confines spine memory accesses within an $o$-width sliding window, scan input accesses are likewise constrained to an $ot$-width window, increasing their likelihood of residing in cache. As we later empirically demonstrate in Section~\ref{sec:Sim-Blocking}, this cache residency significantly reduces memory access costs, making fallback operations predominantly compute-bound when reducing a blocking tile. Since pure reduction has minimal overhead, throughput approaches $O(2n)$ on most devices.
 
 \section{Implementation}
 At a high level, our algorithm follows a five-phase construction:
@@ -393,8 +392,7 @@ Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3
     \textbf{barrier()}\;
   }
   \Return{$\textit{x}$}\;
-  \caption{Workgroup-Wide Scan.}
-  \label{alg:example}
+  \caption{Workgroup-Wide Scan.\label{alg:example}}
 \end{algorithm}
 
 \subsection{Workgroup-Wide Scan}
@@ -413,8 +411,7 @@ We now detail the \emph{Decoupled-Fallback} procedure, presenting the algorithm 
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{graphics/FlowChart.pdf}
-  \label{fig:decoupled_fallback}
-  \caption{Flow Chart Representation of Decoupled Fallback}
+  \caption{Flow Chart Representation of Decoupled Fallback.\label{fig:decoupled_fallback}}
 \end{figure}
 \begin{enumerate}
   \item[(0)] \textbf{Posting Local Reduction:}
@@ -508,15 +505,14 @@ We configure workgroups with a size $w = 256$ threads, where each thread process
     AMD    & Radeon RX 7900 XT      & \textbf{Yes} & 420 & 32--64  \\
     \bottomrule
   \end{tabular*}
-  \caption{Hardware Specifications of Testing Devices.}
-  \label{tab:hardware}
+  \caption{Hardware Specifications of Testing Devices.\label{tab:hardware}}
 \end{table}
 
 \subsection{Performance Comparison}
 \subsubsection{Cross-API Performance Versus Contemporary Implementations}
 We first compare \emph{Decoupled Fallback} (\emph{DF}) to two key benchmarks: \emph{Memcpy}\textdagger{~\ref{sec:memcpy}} and the \emph{Decoupled Lookback} (\emph{DL}) implementation found in NVIDIA’s CUB library, using the 2080 Super only. To isolate the impact of differing APIs, we implement and evaluate \emph{DF} in both CUDA and Dawn.\footnote{Due to WebGPU’s 128MB storage buffer limit, our maximum test size is limited to $2^{25}$ 32-bit elements.} \emph{Memcpy} serves as a performance reference, as it shares the same $2n$ global memory movement as \emph{DF} but lacks compute overhead and is purely memory bandwidth bound.
 
-Cross-API comparisons remain challenging, as our CUDA implementation consistently outperforms its Dawn counterpart despite near-identical high-level implementations. The performance cost of \emph{DF} is most pronounced in CUDA when the entire input fits within the 2080 Super’s 4MB L2 cache, where reduced global memory latency exposes \emph{DF's} increased synchronization and compute overhead compared to CUB. However, at larger input sizes, where memory accesses exceed cache capacity, \emph{DF} reaches parity with CUB and achieves \emph{Memcpy} speeds.
+Cross-API comparisons remain challenging, as our CUDA implementation consistently outperforms its Dawn counterpart despite near-identical high-level implementations. The performance cost of \emph{DF} is most pronounced in CUDA when the entire input fits within the 2080 Super’s 4MB L2 cache, where reduced global memory latency exposes \emph{DF's} increased synchronization and compute overhead compared to CUB\@. However, at larger input sizes, where memory accesses exceed cache capacity, \emph{DF} reaches parity with CUB and achieves \emph{Memcpy} speeds.
 
 \begin{figure}
   \centering
@@ -545,8 +541,7 @@ We next compare \emph{DF} against \emph{Reduce then Scan}\textdagger{~\ref{sec:r
     Avg Total Successful Insertions    & 6.170     & 122.436   & 4.612     & 0.012    & 0.284    & 0.020    \\
     \bottomrule
   \end{tabular*}
-  \caption{\emph{Decoupled Fallback} performance, 32-bit Inclusive Prefix Sum, $\mathbf{2^{25}}$ 32-bit elements}
-  \label{tab:results}
+  \caption{\emph{Decoupled Fallback} performance, 32-bit Inclusive Prefix Sum, $\mathbf{2^{25}}$ 32-bit elements.\label{tab:results}}
 \end{table*}
 
 As shown in Table~\ref{tab:results}, \emph{DF} achieves at least a $\sim$40\% speedup over \emph{RTS} across all tested devices, closely approaching the theoretically expected $O(3n)/O(2n)$ 50\% speedup, except on the ARM Mali. \emph{DF} closely matches \emph{Memcpy} across most devices, deviating only on the AMD 7900 XT and ARM Mali, where \emph{DF} outperforms \emph{Memcpy} by 30.9\% and 12.8\%, respectively. This suggests that additional compute latency may mitigate paging effects by separating loads from stores. On the ARM Mali, \emph{DF} appears to underperform, achieving only a 36\% speedup instead of the expected 50\%. However, its nearly identical performance to \emph{Memcpy}, indicates that the implementation is memory-bandwidth-bound, limiting further gains.
@@ -562,20 +557,18 @@ To better understand how devices interact with \emph{DF}, we collect the followi
 Despite differing occupancy rates, the number of waiting spins remains consistent across devices. Likewise, lookback length is stable and remains well below the theoretical occupancy bound. Expressed as a percentage of occupancy, it remains under 10\% for all devices, except for the Intel HD620, where its elevated value is likely an artifact of its low absolute occupancy. Most notably, the devices lacking FPG---Apple M3 and M1 Max---do not exhibit significantly higher successful insertion rates than the others, suggesting that true deadlocking is a rare occurrence.
 
 \subsection{Simulated Blocking}\label{sec:Sim-Blocking}
-To demonstrate the resilience of our technique to unfair schedulers, we simulate fallback rates significantly higher than those observed organically by intentionally omitting work tile reduction updates. Because these updates are skipped, the immediate successor workgroup reads \emph{Not Ready}, spinning and triggering a fallback. Starting with infrequent omissions---1 in 512 work tiles---we progressively increase the omission rate to near-continuous levels---1 in 2 work tiles----recording \emph{DF} statistics at each step.
+To demonstrate the resilience of our technique to unfair schedulers, we simulate fallback rates significantly higher than those observed organically by intentionally omitting work tile reduction updates. Because these updates are skipped, the immediate successor workgroup reads \emph{Not Ready}, spinning and triggering a fallback. Starting with infrequent omissions---1 in 512 work tiles---we progressively increase the omission rate to near-continuous levels---1 in 2 work tiles---recording \emph{DF} statistics at each step.
 \begin{figure*}
   \centering
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
     \includegraphics[width=\linewidth]{graphics/fallbacksInitiated_plot.pdf}
-    \caption{Fallbacks Initiated}
-    \label{fig:fallbacks_initiated}
+    \caption{Fallbacks Initiated.\label{fig:fallbacks_initiated}}
   \end{subfigure}\hfill
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
     \includegraphics[width=\linewidth]{graphics/totalSpins_plot.pdf}
-    \caption{Total Spins}
-    \label{fig:total_spins}
+    \caption{Total Spins.\label{fig:total_spins}}
   \end{subfigure}
 
   \vspace{0.2em}
@@ -583,21 +576,18 @@ To demonstrate the resilience of our technique to unfair schedulers, we simulate
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
     \includegraphics[width=\linewidth]{graphics/lookbackLength_plot.pdf}
-    \caption{Lookback Length}
-    \label{fig:lookback_length}
+    \caption{Lookback Length.\label{fig:lookback_length}}
   \end{subfigure}\hfill
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
     \includegraphics[width=\linewidth]{graphics/time_plot.pdf}
-    \caption{Throughput vs.\ Baseline}
-    \label{fig:execution_time}
+    \caption{Throughput vs.\ Baseline.\label{fig:execution_time}}
   \end{subfigure}
 
-  \caption{Simulated Blocking. \john{Please write a good caption here---this is an important caption to write! Probably writing subfigure captions is the right way to go (explain each of them individually).}}
-  \label{fig:vertical_images}
+  \caption{Simulated Blocking. \john{Please write a good caption here---this is an important caption to write! Probably writing subfigure captions is the right way to go (explain each of them individually).}\label{fig:vertical_images}}
 \end{figure*}
 
-As shown in Figure~\ref{fig:execution_time}, performance relative to a no-omission baseline remains above 85\% even at near 100\% fallback rates across all devices---except for the Intel HD620, where only a 25\% fallback rate is induced. Notably, this performance level remains well above the equivalent \emph{RTS} performance of 66\%. While Figures~\ref{fig:fallbacks_initiated} and \ref{fig:total_spins} confirm that we are inducing fallbacks, this test primarily measures the impact of increasing fallback operations rather than true blocking behavior. The finer details of this distinction are discussed next.
+As shown in Figure~\ref{fig:execution_time}, performance relative to a no-omission baseline remains above 85\% even at near 100\% fallback rates across all devices---except for the Intel HD620, where only a 25\% fallback rate is induced. Notably, this performance level remains well above the equivalent \emph{RTS} performance of 66\%. While Figures~\ref{fig:fallbacks_initiated} and~\ref{fig:total_spins} confirm that we are inducing fallbacks, this test primarily measures the impact of increasing fallback operations rather than true blocking behavior. The finer details of this distinction are discussed next.
 \section{Discussion}
 
 \subsection{Trade-offs}
@@ -611,7 +601,7 @@ Another potential bottleneck is the speed of atomic operations. On some older GP
 \subsection{Future Work}
 Sorting is one of the most notable beneficiaries of single-pass scan and, by extension, \emph{Decoupled Fallback}. The current state-of-the-art algorithm, Adinets and Merrill’s \emph{Onesweep}~\cite{adinets2022onesweepfastersignificantdigit}, is an 8-bit least-significant-digit radix sort, where single-pass scan minimizes data movement during digit-binning passes. However, due to its compute-intensive nature and large $radixDigit$-sized monoid, it is unclear whether \emph{Decoupled Fallback} will map well to sorting or if new techniques are needed.
 
-Our reexamination of \emph{Chained Scan} with dynamic assignment raises fundamental questions about the GPU progress models proprosed by Sorensen et al. in \cite{sorensen2021}: Can all HSA algorithms be converted to OBE via dynamic assignment? Are there cases, excluding atomic memory errors, where LOBE guarantees termination but dynamic assignment with OBE does not? Is OBE all you need?
+Our reexamination of \emph{Chained Scan} with dynamic assignment raises fundamental questions about the GPU progress models proprosed by Sorensen et al.~\cite{sorensen2021}: Can all HSA algorithms be converted to OBE via dynamic assignment? Are there cases, excluding atomic memory errors, where LOBE guarantees termination but dynamic assignment with OBE does not? Is OBE all you need?
 
 \subsection{Conclusion}
 In this paper, we presented \emph{Decoupled Fallback}, a single-pass \emph{Chained-Scan} capable of reaching SOL performance under all progress models and suitable for implementation within the constraints of contemporary shading languages. Our approach mantains minimal data movement while ensuring robust execution across diverse GPU architectures.
@@ -625,7 +615,7 @@ In this paper, we presented \emph{Decoupled Fallback}, a single-pass \emph{Chain
 \subsection{Availability}
 We provide our artifact in the following GitHub repository: \thomas{Will anonymize with GithubAnonymous once we are ready}. The repository contains per API requirements and building instructions.
 
-\subsection{Baseline Comparisons: \emph{Memcpy}}
+\subsection{Baseline Comparisons: \emph{Memcpy}}%
 \label{sec:memcpy}
 \begin{table}
   \small
@@ -643,8 +633,7 @@ We provide our artifact in the following GitHub repository: \thomas{Will anonymi
     AMD 7900 XT                           & 800              & 100.0e9         \\
     \bottomrule
   \end{tabular}
-  \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second).}
-  \label{tab:memory_bandwidth}
+  \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second).\label{tab:memory_bandwidth}}
 \end{table}
 Although all of Dawn's backend APIs support \emph{timestamp queries inside encoders}, Apple GPUs do not, so we are forced to implement our own \emph{Memcpy} kernel to measure memory bandwidth, as opposed to simply timing an API's copy buffer operation. It is well known that \emph{observed} peak memory bandwidth, tends to diverge from vendor-listed peak bandwidth, so for completeness we list these figures above. We make a number of observations:
 \begin{itemize}
@@ -655,7 +644,7 @@ Although all of Dawn's backend APIs support \emph{timestamp queries inside encod
   \item \textbf{AMD 7900 XT:} Our above result, where \emph{DF} was observed to be faster than \emph{Memcopy}, is likely due to compute latency counterintuitively improving memory access patterns, leading to reduced paging. Furthermore, we see that our \emph{DF} throughput is within spec and reasonable.
 \end{itemize}
 
-\subsection{Baseline Comparisons: \emph{Reduce then Scan}}
+\subsection{Baseline Comparisons: \emph{Reduce then Scan}}%
 \label{sec:rts}
 As we desire the most competitve baseline possible, our \emph{RTS} kernels employ the same intra-workgroup scan strategy and tuning parameters as \emph{DF}. Initially, we adopted Merrill and Grimshaw's~\cite{Merrill2009} workgroup raking approach for inter-workgroup processing. However, empirical testing revealed that raking was consistently outperformed—by up to $\sim$15\% on lower-end devices—by a simpler approach that processes the spine serially with a single workgroup. Furthermore, our \emph{RTS} performance closely aligns with the theoretically expected $O(3n)$ global memory movement.
 
