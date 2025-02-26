@@ -495,6 +495,7 @@ We configure workgroups with a size $w = 256$ threads, where each thread process
 \begin{table}
   \centering
   \small
+  \setlength{\tabcolsep}{1pt}
   \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}} l l c r r}
     \toprule
     Vendor & Device Name & LOBE & Occupancy & Subgroup Size \\
@@ -528,6 +529,7 @@ We next compare \emph{DF} against \emph{Reduce then Scan}\textdagger{~\ref{sec:r
 
 \begin{table*}
   \centering
+  \setlength{\tabcolsep}{1pt}
   \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l r r r r r r}
     \toprule
     Metric & Intel HD620 & ARM Mali-G78 MP20 & Apple M3 & Apple M1 Max & Nvidia 2080 Super & AMD 7900 XT \\
@@ -635,7 +637,7 @@ We provide our artifact in the following GitHub repository: \thomas{Will anonymi
     Intel HD620 Single-Channel            & 17.1             & 2.13e9          \\
     Intel HD620 Dual-Channel              & 34.1             & 4.26e9          \\
     ARM Mali-G78 MP20 / Tensor (Pixel 6a) & 51.2             & 6.40e9          \\
-    Apple M3 (??? Cores)                  & 102.4            & 12.8e9          \\
+    Apple M3 (10 Cores)                   & 102.4            & 12.8e9          \\
     Apple M1 Max (32 Cores)               & 409.6            & 51.2e9          \\
     Nvidia 2080 Super                     & 496              & 62.0e9          \\
     AMD 7900 XT                           & 800              & 100.0e9         \\
