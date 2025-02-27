@@ -261,7 +261,7 @@ The absence of FPG in key hardware segments poses a critical challenge for devel
 \begin{figure}
   \centering
   \includegraphics[width=0.6\linewidth]{graphics/Figure_1.pdf}
-  \caption{Execution times of \emph{Decoupled Lookback (PLACEHOLDER DATA)}}
+  \caption{Execution times of \emph{Decoupled Lookback} (PLACEHOLDER DATA). The TDR threshold represents the duration after which the OS, assuming a non-terminating kernel, kills the driver. \john{This figure needs to be cited in the text.}}
 \end{figure}
 Exacerbating this issue, no major graphics API provides a mechanism to query FPG support. This lack of transparency forces developers to design algorithms without knowing whether critical guarantees are available on the target hardware. In shader environments, where cross-platform portability is essential, this uncertainty compels a fallback to older, less efficient strategies like \emph{Reduce-then-Scan}, sacrificing performance for broader compatibility.
 
