@@ -145,7 +145,7 @@
 \maketitle
 
 \section{Introduction}
-Scan is one of the most ubiquitous operations in GPU computing, with applications in sorting~\cite{adinets2022onesweepfastersignificantdigit}, sparse matrix operations~\cite{BellGarland2009}, and more. The current state-of-the-art prefix scan algorithm, Merrill and Garland's \emph{Decoupled Lookback}, achieves near-ideal performance on NVIDIA hardware via CUDA by leveraging the \emph{Chained Scan} architecture. This approach hybridizes serial and parallel strategies to read and write each element exactly once, achieving the theoretical minimum global memory movement of $O(2n)$. \emph{Chained Scans} that fully saturate device memory bandwidth reach the \emph{Speed of Light} (SOL) performance limit---the theoretical maximum throughput constrained by the physical limits of the device. However, \emph{Decoupled Lookback} relies on architectural and language-specific guarantees provided by the NVIDIA ecosystem, most notably a device scheduler property known as a \emph{forward-progress guarantee}; without this guarantee, it risks indefinite starvation and will never complete. In practice, it is easy to demonstrate this behavior.
+Scan is one of the most ubiquitous operations in GPU computing, with applications in sorting~\cite{adinets2022onesweepfastersignificantdigit}, sparse matrix operations~\cite{BellGarland2009}, and more. The current state-of-the-art prefix scan algorithm, Merrill and Garland's \emph{Decoupled Lookback}, achieves near-ideal performance on NVIDIA hardware via CUDA by leveraging the \emph{Chained Scan} architecture. This approach hybridizes serial and parallel strategies to read and write each element exactly once, achieving the theoretical minimum global memory movement of $O(2n)$. \emph{Chained Scans} that fully saturate device memory bandwidth reach the \emph{Speed of Light} (SOL) performance limit---the theoretical maximum throughput constrained by the physical limits of the device. However, \emph{Decoupled Lookback} relies on architectural and language-specific guarantees provided by the NVIDIA ecosystem, most notably a device scheduler property known as a \emph{forward-progress guarantee}; without this guarantee, it risks indefinite starvation and will never complete. In practice, it is easy to demonstrate this highly undesirable behavior.
 
 As the compute capabilities of major graphics APIs---Vulkan, Direct3D, and Metal---have grown, there has been increasing interest in adapting \emph{Decoupled Lookback} beyond CUDA for broader adoption in real-time graphics and GPU computing. However, portable implementation is constrained by both hardware and API limitations. In terms of hardware, some GPU schedulers—most notably Apple's M series and ARM—lack forward-progress guarantees, and subgroup sizes vary across architectures. In terms of API design, the absence of 64-bit atomic operations and explicit memory barriers further complicates implementation, as both are integral to \emph{Decoupled Lookback}.
 
@@ -260,7 +260,7 @@ Thus, by dynamically acquiring IDs through atomics, \emph{Chained Scan} shifts i
 The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing shows that, at best, running \emph{Chained Scan} without FPG results in severe performance degradation, and at worst, risks \emph{Timeout Device Recovery} and program crashes.
 \begin{figure}
   \centering
-  \includegraphics[width=\linewidth]{graphics/Figure_1.pdf}
+  \includegraphics[width=0.6\linewidth]{graphics/Figure_1.pdf}
   \caption{Execution times of \emph{Decoupled Lookback (PLACEHOLDER DATA)}}
 \end{figure}
 Exacerbating this issue, no major graphics API provides a mechanism to query FPG support. This lack of transparency forces developers to design algorithms without knowing whether critical guarantees are available on the target hardware. In shader environments, where cross-platform portability is essential, this uncertainty compels a fallback to older, less efficient strategies like \emph{Reduce-then-Scan}, sacrificing performance for broader compatibility.
@@ -514,8 +514,8 @@ Cross-API comparisons remain challenging, as our CUDA implementation consistentl
 
 \begin{figure}
   \centering
-  \includegraphics[width=\linewidth]{graphics/cuda_plot.pdf}
-  \caption{Performance versus CUB (NVIDIA 2080 Super)}
+  \includegraphics[width=0.6\linewidth]{graphics/cuda_plot.pdf}
+  \caption{Performance versus CUB (NVIDIA 2080 Super).}
 \end{figure}
 
 \subsubsection{Same-API Performance Versus Baseline Measures}
