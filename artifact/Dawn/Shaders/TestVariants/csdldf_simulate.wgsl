@@ -194,7 +194,10 @@ fn main(
             if(threadid.x < lane_count){
                 var spin_count = 0u;
                 while(spin_count < MAX_SPIN_COUNT){
-                    var flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
+                    var flag_payload = 0u;
+                    if(threadid.x < SPLIT_MEMBERS){
+                        flag_payload = atomicLoad(&spine[lookback_id][threadid.x]);
+                    }
                     if(unsafeBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY) == ALL_READY) {
                         var incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                         if(incl_bal != 0u) {
@@ -202,7 +205,10 @@ fn main(
                             //Note, this rests on the assumption that the execution width of the load == store.
                             //If for whatever reason, this is not true, it risks deadlock without FPG.
                             while(incl_bal != ALL_READY){
-                                flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
+                                flag_payload = 0u;
+                                if(threadid.x < SPLIT_MEMBERS){
+                                    flag_payload = atomicLoad(&spine[lookback_id][threadid.x]);
+                                }
                                 incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                             }
                             prev_red += join(flag_payload & VALUE_MASK, threadid.x);
