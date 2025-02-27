@@ -8,6 +8,9 @@ This repository contains the LaTeX file and artifact the SPAA2025 submission *De
 ---
 
 # Building the Dawn Artifact
+You have two options to build the Dawn artifact:
+- Manual Build: Follow the detailed steps below to clone the Dawn repository, build and install Dawn, and then build the artifact.
+- Automated Build Script: Use the provided build script located in this directory. Simply run the script with the number of parallel build threads (default is 4).
 
 ## Device Requirements
 - Any device supporting Dawn, with subgroup and timestamp query capabilities.
