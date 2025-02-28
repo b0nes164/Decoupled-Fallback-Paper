@@ -257,11 +257,11 @@ Thus, by dynamically acquiring IDs through atomics, \emph{Chained Scan} shifts i
 \end{table}
 
 \subsection{Why is Reliance on Forward-Progress Guarantees a Portability Problem?}
-The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing (Figure~\ref{fig:dist}) shows that, at best, running \emph{Chained Scan} without FPG results in performance worse than \emph{Reduce-then-Scan}, and frequently triggers \emph{Timeout Device Recovery}\footnote{Operating systems handle unresponsive programs differently. On Windows, the Timeout Detection and Recovery (TDR) system resets the GPU after approximately 2 seconds. macOS has a timeout watchdog that, interestingly, does not terminate a spinning kernel---allowing us to obtain these results. On Linux, behavior varies by GPU driver.} (TDR), crashing the program.
+The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing (Figure~\ref{fig:dist}) shows that, at best, running \emph{Chained Scan} without FPG results in performance worse than \emph{Reduce-then-Scan}, and frequently triggers \emph{Timeout Device Recovery}\label{sec:tdr}\footnote{Operating systems handle unresponsive programs differently. On Windows, the Timeout Detection and Recovery (TDR) system resets the GPU after approximately 2 seconds. macOS has a timeout watchdog that, interestingly, does not terminate a spinning kernel---allowing us to obtain these results. On Linux, behavior varies by GPU driver.} (TDR), crashing the program.
 \begin{figure}
   \centering
   \includegraphics[width=0.6\linewidth]{graphics/dist.pdf}
-  \caption{Execution times of \emph{Decoupled Lookback} on an FPG-lacking device, Apple M1 Max. The TDR threshold represents the duration after which the OS, assuming a non-terminating kernel, kills the driver.\label{fig:dist}}
+  \caption{Execution times of \emph{Decoupled Lookback} on an FPG-lacking device, Apple M1 Max. The TDR threshold here is Windows's threshold for resetting the GPU\@; as noted in Section~\ref{sec:tdr}, MacOS handles this differently.\label{fig:dist}}
 \end{figure}
 Exacerbating this issue, no major graphics API provides a mechanism to query FPG support. This lack of transparency forces developers to design algorithms without knowing whether critical guarantees are available on the target hardware. In shader environments, where cross-platform portability is essential, this uncertainty compels a fallback to older, less efficient strategies like \emph{Reduce-then-Scan}, sacrificing performance for broader compatibility.
 
