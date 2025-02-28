@@ -262,16 +262,16 @@ The absence of FPG in key hardware segments poses a critical challenge for devel
   \centering
   \begin{subfigure}[b]{0.45\linewidth}
     \includegraphics[width=\linewidth]{graphics/decoupled_lookback.pdf}
-    \caption{\emph{Decoupled Lookback}}
+    \caption{\emph{Decoupled Lookback.}}
     \label{fig:decoupled}
   \end{subfigure}
   \hfill
   \begin{subfigure}[b]{0.45\linewidth}
     \includegraphics[width=\linewidth]{graphics/ours.pdf}
-    \caption{Ours}
+    \caption{\emph{Decoupled Fallback (ours).}}
     \label{fig:ours}
   \end{subfigure}
-  \caption{Histogram plots, Inclusive Prefix Sum, $\mathbf{2^{25}}$ 32-bit elements, on an FPG-lacking device, Apple M1 Max. The TDR threshold is Windows's threshold for resetting the GPU\@; as noted in Section~\ref{sec:tdr}, MacOS handles this differently.}
+  \caption{Histogram plots, 500 runs of Inclusive Prefix Sum, $\mathbf{2^{25}}$ 32-bit elements, on an FPG-lacking device, Apple M1 Max. Bar heights ($y$ axis) indicate the number of runs that completed in the execution time indicated on the $x$ axis. The TDR threshold is Windows's threshold for resetting the GPU\@; as noted in Section~\ref{sec:tdr}, MacOS handles this differently.}
   \label{fig:dist}
 \end{figure}
 Exacerbating this issue, no major graphics API provides a mechanism to query FPG support. This lack of transparency forces developers to design algorithms without knowing whether critical guarantees are available on the target hardware. In shader environments, where cross-platform portability is essential, this uncertainty compels a fallback to older, less efficient strategies like \emph{Reduce-then-Scan}, sacrificing performance for broader compatibility.
