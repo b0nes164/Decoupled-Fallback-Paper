@@ -257,11 +257,22 @@ Thus, by dynamically acquiring IDs through atomics, \emph{Chained Scan} shifts i
 \end{table}
 
 \subsection{Why is Reliance on Forward-Progress Guarantees a Portability Problem?}
-The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing (Figure~\ref{fig:dist}) shows that, at best, running \emph{Chained Scan} without FPG results in performance worse than \emph{Reduce-then-Scan}, and frequently triggers \emph{Timeout Device Recovery}\label{sec:tdr}\footnote{Operating systems handle unresponsive programs differently. On Windows, the Timeout Detection and Recovery (TDR) system resets the GPU after approximately 2 seconds. macOS has a timeout watchdog that, interestingly, does not terminate a spinning kernel---allowing us to obtain these results. On Linux, behavior varies by GPU driver.} (TDR), crashing the program.
+The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing (Figure~\ref{fig:dist}) shows that, at best, running \emph{Chained Scan} without FPG results in performance worse than \emph{Reduce-then-Scan}, and frequently triggers \emph{Timeout Device Recovery}\label{sec:tdr}\footnote{Operating systems handle unresponsive programs differently. On Windows, the Timeout Detection and Recovery (TDR) system resets the GPU after approximately 2 seconds. Other operating systems---such as macOS and Linux---employ their own timeout mechanisms with varying behaviors. For consistency, we adopt Windows’ 2-second limit as a reasonable expectation for maximum execution time.} (TDR), crashing the program.
 \begin{figure}
   \centering
-  \includegraphics[width=0.6\linewidth]{graphics/dist.pdf}
-  \caption{Execution times of \emph{Decoupled Lookback} on an FPG-lacking device, Apple M1 Max. The TDR threshold here is Windows's threshold for resetting the GPU\@; as noted in Section~\ref{sec:tdr}, MacOS handles this differently.\label{fig:dist}}
+  \begin{subfigure}[b]{0.45\linewidth}
+    \includegraphics[width=\linewidth]{graphics/decoupled_lookback.pdf}
+    \caption{\emph{Decoupled Lookback}}
+    \label{fig:decoupled}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.45\linewidth}
+    \includegraphics[width=\linewidth]{graphics/ours.pdf}
+    \caption{Ours}
+    \label{fig:ours}
+  \end{subfigure}
+  \caption{Histogram plots, Inclusive Prefix Sum, $\mathbf{2^{25}}$ 32-bit elements, on an FPG-lacking device, Apple M1 Max. The TDR threshold is Windows's threshold for resetting the GPU\@; as noted in Section~\ref{sec:tdr}, MacOS handles this differently.}
+  \label{fig:dist}
 \end{figure}
 Exacerbating this issue, no major graphics API provides a mechanism to query FPG support. This lack of transparency forces developers to design algorithms without knowing whether critical guarantees are available on the target hardware. In shader environments, where cross-platform portability is essential, this uncertainty compels a fallback to older, less efficient strategies like \emph{Reduce-then-Scan}, sacrificing performance for broader compatibility.
 
@@ -540,7 +551,7 @@ We next compare \emph{DF} against \emph{Reduce-then-Scan}\textdagger{~\ref{sec:r
     Avg Total Successful Insertions    & 6.170     & 122.436   & 4.612     & 0.012    & 0.284    & 0.020    \\
     \bottomrule
   \end{tabular*}
-  \caption{\emph{Decoupled Fallback} performance, 32-bit Inclusive Prefix Sum, $\mathbf{2^{25}}$ 32-bit elements.\label{tab:results}}
+  \caption{\emph{Decoupled Fallback} performance, Inclusive Prefix Sum, $\mathbf{2^{25}}$ 32-bit elements.\label{tab:results}}
 \end{table*}
 
 As shown in Table~\ref{tab:results}, \emph{DF} achieves at least a $\sim$40\% speedup over \emph{RTS} across all tested devices, closely approaching the theoretically expected $O(3n)/O(2n)$ 50\% speedup, except on the ARM Mali. \emph{DF} closely matches \emph{Memcpy} across most devices, deviating only on the AMD 7900 XT and ARM Mali, where \emph{DF} outperforms \emph{Memcpy} by 30.9\% and 12.8\%, respectively. This suggests that additional compute latency may mitigate paging effects by separating loads from stores. On the ARM Mali, \emph{DF} appears to underperform, achieving only a 36\% speedup instead of the expected 50\%. However, its nearly identical performance to \emph{Memcpy} indicates that the implementation is memory-bandwidth-bound, limiting further gains.
