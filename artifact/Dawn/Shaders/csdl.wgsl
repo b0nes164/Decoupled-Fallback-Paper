@@ -179,19 +179,13 @@ fn main(
         var lookback_id = tile_id - 1u;
         if(threadid.x < lane_count){
             while(true) {
-                var flag_payload = 0u;
-                if(threadid.x < SPLIT_MEMBERS){
-                    flag_payload = atomicLoad(&spine[lookback_id][threadid.x]);
-                }
+                var flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
                 if(unsafeBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY) == ALL_READY) {
                     var incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                     if(incl_bal != 0u) {
                         //Did we find any inclusive? Alright, the rest are guaranteed to be on their way, lets just wait.
                         while(incl_bal != ALL_READY){
-                            flag_payload = 0u;
-                            if(threadid.x < SPLIT_MEMBERS){
-                                flag_payload = atomicLoad(&spine[lookback_id][threadid.x]);
-                            }
+                            flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
                             incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
                         }
                         prev_red += join(flag_payload & VALUE_MASK, threadid.x);
