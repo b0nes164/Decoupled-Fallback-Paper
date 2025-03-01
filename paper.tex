@@ -407,7 +407,33 @@ Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3
 \end{algorithm}
 
 \subsection{Workgroup-Wide Scan}
-The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{10.1145/322217.322232} scan network embedded with Kogge-Stone~\cite{5009159} subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a subgroup \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase causes no performance degradation due to our modest overall use of shared memory, such as our deliberate retention of vectors in registers and the efficiency of subgroup raking. Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; and zero bank conflicts across all supported subgroup sizes:
+The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{10.1145/322217.322232} scan network embedded with Kogge-Stone~\cite{5009159} subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a subgroup \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase causes no performance degradation due to our modest overall use of shared memory, such as our deliberate retention of vectors in registers and the efficiency of subgroup raking. 
+
+For a subgroup of size $s$, the Kogge-Stone network has a work complexity of $s \log_2 s$. Given an input of size $n$, the work complexity is:
+\begin{equation}
+  \begin{aligned}[b]
+    \text{Work} & = \underbrace{\vphantom{\sum_{k=0}^{\lceil \log_s n \rceil}}n}_{\text{fanout}}
+    +
+    \underbrace{\sum_{k=1}^{\lceil \log_s n \rceil}}_{\text{iterations}}
+    \underbrace{\vphantom{\sum_{k=1}^{\lceil \log_s n \rceil}}\frac{n}{s^k}}_{\text{calls per iteration}}
+    \cdot
+    \underbrace{\vphantom{\sum_{k=1}^{\lceil \log_s n \rceil}}s \log_2 s}_{\text{work per call}} \\
+                & = n + s \log_2 s \cdot \sum_{k=1}^{\lceil \log_s n \rceil} \frac{n}{s^k}       \\
+                & = O\left(n + n \log_2 s\right)                                                 \\
+                & = O(n \log_2 s)                                                                \\
+                & = O(n).
+  \end{aligned}
+\end{equation}
+Since the subgroup size remains constant within each kernel launch, the final work complexity is $O(n)$. The Kogge-Stone scan has a depth of $\log_2 s$; the total depth of the workgroup-wide scan is:
+\begin{equation}
+  \begin{aligned}[b]
+    \text{Depth} & = \underbrace{\lceil \log_s n \rceil}_{\text{loop iterations}}
+    \cdot \underbrace{\log_2 s}_{\text{depth per iteration}}                           \\
+                 & = \left\lceil \frac{\log_2 n}{\log_2 s} \right\rceil \cdot \log_2 s \\
+                 & = \log_2 n + O(1).
+  \end{aligned}
+\end{equation}
+Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; and zero bank conflicts across all supported subgroup sizes. However, while minimal depth is preserved regardless of the subgroup size, this result can be somewhat misleading, as the depth incurred during the subgroup portion of the scan requires no barrier, whereas the main loop incurs a workgroup-wide barrier at each iteration. Consequently, while the theoretical depth remains constant across subgroup sizes, smaller subgroups tend to perform worse in practice due to the increased relative cost of synchronization and the overhead of additional iterations in the main loop.
 
 \subsection{Decoupled Fallback}
 To reiterate, the goal of \emph{Chained Propagation} is twofold: first, to determine the reduction of all preceding work tiles, and second, to relay those values to succeeding tiles to accelerate their own lookback operations. Following the \emph{Decoupled Lookback} technique, we model the inter-workgroup spine as a finite-state machine, where each work tile is represented by a reduction value and a state, stored in global memory. Each tile may exist in one of three states:
