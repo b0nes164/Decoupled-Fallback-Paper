@@ -644,7 +644,7 @@ Our reexamination of \emph{Chained Scan} with dynamic assignment raises fundamen
 \subsection{Conclusion}
 In this paper, we introduced \emph{Decoupled Fallback}, a single-pass \emph{Chained Scan} capable of achieving SOL performance across all progress models while remaining compatible with modern graphics APIs and hardware constraints. Our approach enables any workgroup to compute the reduction of any work tile, eliminating the risk of starvation. We reexamined the progress models proposed by Sorensen et al.~\cite{sorensen2021} in the context of dynamically assigned work, demonstrating that Chained Scan implementations require, at minimum, the OBE guarantee. Additionally, we highlighted the risks of running \emph{Decoupled Lookback} without FPG. Furthermore, we introduced a subgroup-accelerated yet subgroup-size-agnostic scan based on a generalized radix-$s$ Ladner-Fischer scan, along with a tile state representation that eliminates reliance on 64-bit atomics and memory barriers by distributing tile data across multiple values.
 
-Our artifact is available in the following GitHub repository: TODO. The repository contains per API requirements and building instructions.
+Our artifact is available in the following GitHub repository: https://anonymous.4open.science/status/Decoupled-Fallback-Paper-A33C. The repository contains per API requirements and building instructions.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{bib}
