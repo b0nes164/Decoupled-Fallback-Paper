@@ -1,0 +1,117 @@
+%%
+%% This is file `sample-sigconf.tex',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% samples.dtx  (with options: `all,proceedings,bibtex,sigconf')
+%%
+%% IMPORTANT NOTICE:
+%%
+%% For the copyright see the source file.
+%%
+%% Any modified versions of this file must be renamed
+%% with new filenames distinct from sample-sigconf.tex.
+%%
+%% For distribution of the original source see the terms
+%% for copying and modification in the file samples.dtx.
+%%
+%% This generated file may be distributed as long as the
+%% original source files, as listed above, are part of the
+%% same distribution. (The sources need not necessarily be
+%% in the same archive or directory.)
+%%
+%%
+%% Commands for TeXCount
+%TC:macro~\cite [option:text,text]
+%TC:macro~\citep [option:text,text]
+%TC:macro~\citet [option:text,text]
+%TC:envir table 0 1
+%TC:envir table* 0 1
+%TC:envir tabular [ignore] word
+%TC:envir displaymath 0 word
+%TC:envir math 0 word
+%TC:envir comment 0 0
+%%
+%% The first command in your LaTeX source must be the \documentclass
+%% command.
+%%
+%% For submission and review of your manuscript please change the
+%% command to \documentclass[manuscript, screen, review]{acmart}.
+
+\documentclass[acmsmall, manuscript, screen, review, anonymous]{acmart}
+%%
+%% \BibTeX command to typeset BibTeX logo in the docs
+\AtBeginDocument{%
+  \providecommand\BibTeX{{%
+    Bib\TeX}}}
+
+\setcopyright{acmlicensed}
+\copyrightyear{2025}
+\acmYear{2025}
+\acmDOI{XXXXXXX.XXXXXXX}
+\acmConference[SPAA '25]{37th ACM Symposium on Parallelism in Algorithms and Architectures}{July 28--August 1,
+  2025}{Portland, OR, USA}
+\acmISBN{978-1-4503-XXXX-X/18/06}
+
+\usepackage[ruled,vlined]{algorithm2e}
+\SetKwInput{KwGlobalIn}{Global Mem Input}
+\SetKwInput{KwSharedIn}{Shared Mem Input}
+\SetKwInput{KwSharedOut}{Shared Mem Output}
+\SetKwInput{KwGlobalOut}{Global Mem Output}
+\SetKwInput{KwConstants}{Constants}
+
+\usepackage{amsmath}
+\usepackage{mathtools}
+\usepackage{listings}
+\usepackage{subcaption}
+\usepackage{makecell}
+
+\begin{document}
+
+\appendix
+\section{Artifact Notes}
+\subsection{Baseline Comparisons: \emph{Memcpy}}%
+\label{sec:memcpy}
+\begin{table}
+  \small
+  \centering
+  \begin{tabular}{l r r}
+    \toprule
+    Device                                & \makecell{Memory           \\ Bandwidth \\ (GB/s)} & \makecell{Expected \\ Throughput \\ (32-bit ele/sec)} \\
+    \midrule
+    Intel HD620 Single-Channel            & 17.1             & 2.13e9  \\
+    Intel HD620 Dual-Channel              & 34.1             & 4.26e9  \\
+    ARM Mali-G78 MP20 / Tensor (Pixel 6a) & 51.2             & 6.40e9  \\
+    Apple M3 (10 Cores)                   & 102.4            & 12.8e9  \\
+    Apple M1 Max (32 Cores)               & 409.6            & 51.2e9  \\
+    Nvidia 2080 Super                     & 496              & 62.0e9  \\
+    AMD 7900 XT                           & 800              & 100.0e9 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second).\label{tab:memory_bandwidth}}
+\end{table}
+Although all of Dawn's backend APIs support \emph{timestamp queries inside encoders}, Apple GPUs do not, so we are forced to implement our own \emph{Memcpy} kernel to measure memory bandwidth, as opposed to simply timing an API's copy buffer operation. It is well known that \emph{observed} peak memory bandwidth tends to diverge from vendor-listed peak bandwidth, so for completeness we list these figures above. We make a number of observations:
+\begin{itemize}
+  \item \textbf{Intel HD620:} As our HD620 laptop is only equipped with a single memory DIMM, its peak bandwidth is limited to the lower bound, 2.13e9 ele/sec. Thus, our observed bandwidth of 1.498e9 is reasonable.
+  \item \textbf{ARM Mali-G78 MP20 / Pixel 6a (Tensor):} The observed throughput is significantly lower than expected, despite a vendor-listed bandwidth of 6.40e9 ele/sec. The cause of this discrepancy remains unclear, but we note other developers have observed similar speeds.
+  \item \textbf{Apple M3:} Observed throughput matches expectations.
+  \item \textbf{Apple M1 Max:} Observed throughput matches expectations.
+  \item \textbf{Nvidia 2080 Super:} Observed throughput matches expectations.
+  \item \textbf{AMD 7900 XT:} Our above result, where \emph{Decoupled Fallback} was observed to be faster than \emph{Memcpy}, is likely due to compute latency counterintuitively improving memory access patterns, leading to reduced paging. Furthermore, we see that our \emph{Decoupled Fallback} throughput is within spec and reasonable.
+\end{itemize}
+
+\subsection{Baseline Comparisons: \emph{Reduce-then-Scan}}
+\label{sec:rts}
+As we desire the most competitive baseline possible, our \emph{Reduce-then-Scan} kernels employ the same intra-workgroup scan strategy and tuning parameters as \emph{Decoupled Fallback}. Initially, we adopted Merrill and Grimshaw's~\cite{Merrill2009} workgroup raking approach for inter-workgroup processing. However, empirical testing revealed that raking was consistently outperformed---by up to $\sim$15\% on lower-end devices---by a simpler approach that processes the spine serially with a single workgroup. We confirm the efficiency of our \emph{Reduce-then-Scan} implementation by observing that its performance closely aligns with the theoretically expected $O(3n)$ global memory throughput across all tested devices.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{bib}
+
+\end{document}
+\endinput
+
+%%% Local Variables:
+%%% mode: LaTeX
+%%% TeX-master: t
+%%% End:

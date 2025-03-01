@@ -277,7 +277,7 @@ The absence of FPG in key hardware segments poses a critical challenge for devel
 Exacerbating this issue, no major graphics API provides a mechanism to query FPG support. This lack of transparency forces developers to design algorithms without knowing whether critical guarantees are available on the target hardware. In shader environments, where cross-platform portability is essential, this uncertainty compels a fallback to older, less efficient strategies like \emph{Reduce-then-Scan}, sacrificing performance for broader compatibility.
 
 \subsection{Earlier Attempts at Portability}
-Our first attempt \raph{we'll add the cite post-review} at implementing a \emph{Decoupled Lookback} scan without relying on FPG was \emph{Scalar Fallback}. Each time a workgroup spins waiting on the reduction from a preceding tile, it advances a \emph{fallback} operation by processing one scalar element from that tile. This eliminates the possibility of deadlock because the number of such operations is bounded; the wait will eventually terminate, possibly at the expense of doing redundant work.
+Our first attempt at implementing a \emph{Decoupled Lookback} scan without relying on FPG was \emph{Scalar Fallback}. Each time a workgroup spins waiting on the reduction from a preceding tile, it advances a \emph{fallback} operation by processing one scalar element from that tile. This eliminates the possibility of deadlock because the number of such operations is bounded; the wait will eventually terminate, possibly at the expense of doing redundant work.
 
 \emph{Scalar Fallback} suffers from two primary inefficiencies. First, the fallback reduction is performed serially by a single thread, progressing only when the lookback thread performs a waiting spin. This results in a $t$-sized blocking tile requiring $t$ spins to complete. Second, once the fallback completes, the lookback thread does not post its result to device memory, forcing every blocked workgroup to redundantly recompute the fallback. While \emph{Scalar Fallback} achieved SOL performance on hardware with FPG and executed correctly without it, its performance on the latter was inferior to \emph{Reduce-then-Scan}.
 
@@ -327,7 +327,7 @@ Our first attempt \raph{we'll add the cite post-review} at implementing a \emph{
     \textbf{workgroupBarrier()}\;
 
     \If{$\textit{wg\_control} = \textnormal{LOCKED}$}{
-      \textbf{FallbackReduce}($\textit{in}$, $\textit{wg\_fallback}$)\;
+      \textbf{Fallback}($\textit{in}$, $\textit{wg\_fallback}$)\;
       \textbf{FallbackInsertionAttempt}($\textit{spine}$, $\textit{wg\_fallback}$, $\textit{wg\_prev\_reduction}$, $\textit{wg\_control}$)\;
       \textbf{workgroupBarrier()}\;
     }
@@ -407,7 +407,7 @@ Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3
 \end{algorithm}
 
 \subsection{Workgroup-Wide Scan}
-The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{10.1145/322217.322232} scan network embedded with Kogge-Stone~\cite{5009159} subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a subgroup \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase causes no performance degradation due to our modest overall use of shared memory, such as our deliberate retention of vectors in registers and the efficiency of subgroup raking. Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; and zero bank conflicts across all supported subgroup sizes.
+The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{10.1145/322217.322232} scan network embedded with Kogge-Stone~\cite{5009159} subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a subgroup \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase causes no performance degradation due to our modest overall use of shared memory, such as our deliberate retention of vectors in registers and the efficiency of subgroup raking. Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; and zero bank conflicts across all supported subgroup sizes:
 
 \subsection{Decoupled Fallback}
 To reiterate, the goal of \emph{Chained Propagation} is twofold: first, to determine the reduction of all preceding work tiles, and second, to relay those values to succeeding tiles to accelerate their own lookback operations. Following the \emph{Decoupled Lookback} technique, we model the inter-workgroup spine as a finite-state machine, where each work tile is represented by a reduction value and a state, stored in global memory. Each tile may exist in one of three states:
@@ -487,7 +487,7 @@ A key innovation of this paper is to \emph{split} the reduced values into multip
 
 \begin{figure}[h!]
   \centering
-  \includegraphics[width=\linewidth]{graphics/split.pdf}
+  \includegraphics[width=.7\linewidth]{graphics/split.pdf}
   \caption{Splitting one 32-bit value into two 32-bit values with bit-packed tile state.}
 \end{figure}
 
@@ -519,7 +519,7 @@ We configure workgroups with a size $w = 256$ threads, where each thread process
 
 \subsection{Performance Comparison}
 \subsubsection{Cross-API Performance Versus Contemporary Implementations}
-We first compare \emph{Decoupled Fallback} (\emph{DF}) to two key benchmarks: \emph{Memcpy}\textdagger{~\ref{sec:memcpy}} and the \emph{Decoupled Lookback} (\emph{DL}) implementation found in NVIDIA's CUB library, using the 2080 Super only. To isolate the impact of differing APIs, we implement and evaluate \emph{DF} in both CUDA and Dawn.\footnote{Due to WebGPU's 128~MB storage buffer limit, our maximum test size is limited to $2^{25}$ 32-bit elements.} \emph{Memcpy} serves as a performance reference, as it shares the same $2n$ global memory movement as \emph{DF} but lacks compute overhead and is purely memory bandwidth bound.
+We first compare \emph{Decoupled Fallback} (\emph{DF}) to two key benchmarks: \emph{Memcpy}\textdagger{A1} and the \emph{Decoupled Lookback} (\emph{DL}) implementation found in NVIDIA's CUB library, using the 2080 Super only. To isolate the impact of differing APIs, we implement and evaluate \emph{DF} in both CUDA and Dawn.\footnote{Due to WebGPU's 128~MB storage buffer limit, our maximum test size is limited to $2^{25}$ 32-bit elements.} \emph{Memcpy} serves as a baseline reference, as it shares the same $2n$ global memory movement as \emph{DF} but lacks compute overhead and is purely memory bandwidth bound.
 
 Cross-API comparisons remain challenging, as our CUDA implementation consistently outperforms its Dawn counterpart despite near-identical high-level implementations. The performance cost of \emph{DF} is most pronounced in CUDA when the entire input fits within the 2080 Super's 4~MB L2 cache, where reduced global memory latency exposes \emph{DF's} increased synchronization and compute overhead compared to CUB\@. However, at larger input sizes, where memory accesses exceed cache capacity, \emph{DF} reaches parity with CUB and achieves \emph{Memcpy} speeds.
 
@@ -530,7 +530,7 @@ Cross-API comparisons remain challenging, as our CUDA implementation consistentl
 \end{figure}
 
 \subsubsection{Same-API Performance Versus Baseline Measures}
-We next compare \emph{DF} against \emph{Reduce-then-Scan}\textdagger{~\ref{sec:rts}} (\emph{RTS}), which serves as a baseline to highlight the performance improvements of our approach over the prior FPG-constrained technique. This evaluation is conducted using Dawn across the full range of tested devices.
+We next compare \emph{DF} against \emph{Reduce-then-Scan}\textdagger{A2} (\emph{RTS}), which serves as a baseline to highlight the performance improvements of our approach over the prior FPG-constrained technique. This evaluation is conducted using Dawn across the full range of tested devices.
 
 \begin{table*}
   \centering
@@ -569,7 +569,7 @@ To better understand how devices interact with \emph{DF}, we collect the followi
   \item \textbf{Total Successful Insertions:} The total number of fallback operations that successfully update a blocking (or late) tile to \emph{Ready}. Due to false-positive fallbacks, this count does not precisely represent the number of true starvations, but instead provides an upper bound. Ideally, this number would also be zero on devices with FPG, but in practice, it is again dependent on the fairness of the scheduler. Unlike the number of fallback initiations, this statistic is extremely low---typically well under 1\% even on devices without FPG---suggesting that true starvation is rare but catastrophic.
 \end{itemize}
 
-Furthermore, this data reveals two notable behaviors: (1) As demonstrated by the Apple M3, a scheduler can be fair yet still lack FPG, indicating that fairness and FPG are not necessarily correlated. (2) The ARM Mali-G78 MP20 exhibits the most unfair scheduling among all tested devices, with a fallback rate of 30.8\% relative to workgroups launched. However, the average number of spins per workgroup is only 1.477---far below our fallback trigger threshold of 4 spins. This suggests a bimodal distribution of waiting times, where workgroups either proceed immediately with minimal delay or experience prolonged stalls that trigger fallbacks.
+Furthermore, this data reveals two notable behaviors: (1) As demonstrated by the Apple M3, a scheduler can be fair yet still lack FPG, demonstrating that fairness and FPG are not necessarily correlated. (2) The ARM Mali-G78 MP20 exhibits the most unfair scheduling among all tested devices, with a fallback rate of 30.8\% relative to workgroups launched. However, the average number of spins per workgroup is only 1.477---far below our fallback trigger threshold of 4 spins. This suggests a bimodal distribution of waiting times, where workgroups either proceed immediately with minimal delay or experience prolonged stalls that trigger fallbacks.
 
 \subsection{Simulated Blocking}%
 \label{sec:Sim-Blocking}
@@ -611,7 +611,7 @@ As shown in Figure~\ref{fig:execution_time}, performance relative to a no-omissi
 \emph{Decoupled Fallback} introduces several tradeoffs that must be considered: (1) Without a memory barrier, the scan cannot be performed in place and requires a separate output buffer to prevent false-positive fallback operations on post-scanned values, as the tile state may not update before the scan values. (2) For monoids larger than 64 bits, multiple subgroups are required, increasing synchronization overhead due to the need for shared memory and barriers. (3) In certain in-situ compaction algorithms where fallback work-tiles cannot be easily reduced and must be held in registers, Decoupled Fallback may reduce occupancy. (4) Additionally, in compute-bound in-situ compaction algorithms, the cost of fallbacks may outweigh the savings from reduced global memory traffic. (5) Lastly, because the control flow of \emph{Decoupled Fallback} requires barriers, latency incurred during lookback cannot be hidden by workgroup computation.
 
 \subsection{Limits on Speed-of-Light Performance}
-Due to its increased latency, synchronization overhead, and longer critical path, \emph{Decoupled Fallback} exacerbates existing challenges faced by \emph{Decoupled Lookback}, particularly a lack of compute capacity and unfair scheduling. Devices that already lack sufficient compute resources to reach SOL performance are especially affected, as the additional compute overhead from fallback operations cannot be hidden by memory loads and stores. The worst-case scenario arises in devices that suffer from both low compute power and unfair scheduling.Another potential bottleneck is the speed of atomic operations. On some older GPUs atomics do not operate within the cache, resulting in significantly higher latency. Slower atomics lead to delayed tile updates, which in turn increase lookback lengths.
+Due to its increased latency, synchronization overhead, and longer critical path, \emph{Decoupled Fallback} exacerbates existing challenges faced by \emph{Decoupled Lookback}, particularly a lack of compute capacity and unfair scheduling. Devices that already lack sufficient compute resources to reach SOL performance are especially affected, as the additional compute overhead from fallback operations cannot be hidden by memory loads and stores. The worst-case scenario arises in devices that suffer from both low compute power and unfair scheduling. Another potential bottleneck is the speed of atomic operations. On GPUs where atomics do not operate within the cache, the resulting higher latency leads to delayed tile updates, which in turn increases lookback lengths.
 
 \subsection{Future Work}
 Sorting is one of the most notable beneficiaries of single-pass scan and, by extension, \emph{Decoupled Fallback}. The current state-of-the-art algorithm, Adinets and Merrill's \emph{Onesweep}~\cite{adinets2022onesweepfastersignificantdigit}, is an 8-bit least-significant-digit radix sort, where single-pass scan minimizes data movement during digit-binning passes. However, due to its compute-intensive nature and large $radixDigit$-sized monoid, it is unclear whether \emph{Decoupled Fallback} will map well to sorting or if new techniques are needed.
@@ -621,50 +621,8 @@ Our reexamination of \emph{Chained Scan} with dynamic assignment raises fundamen
 \subsection{Conclusion}
 In this paper, we presented \emph{Decoupled Fallback}, a single-pass \emph{Chained Scan} capable of reaching SOL performance under all progress models and suitable for implementation within the constraints of contemporary portable shading languages. Our approach maintains minimal data movement while ensuring robust execution across diverse GPU architectures.
 
-\begin{acks}
-\end{acks}
-
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{bib}
-
-\clearpage
-\appendix
-\section{Artifact}
-\subsection{Availability}
-We provide our artifact in the following GitHub repository: \thomas{Will anonymize with GithubAnonymous once we are ready}. The repository contains per API requirements and building instructions.
-
-\subsection{Baseline Comparisons: \emph{Memcpy}}%
-\label{sec:memcpy}
-\begin{table}
-  \small
-  \centering
-  \begin{tabular}{l r r}
-    \toprule
-    Device                                & \makecell{Memory           \\ Bandwidth \\ (GB/s)} & \makecell{Expected \\ Throughput \\ (32-bit ele/sec)} \\
-    \midrule
-    Intel HD620 Single-Channel            & 17.1             & 2.13e9  \\
-    Intel HD620 Dual-Channel              & 34.1             & 4.26e9  \\
-    ARM Mali-G78 MP20 / Tensor (Pixel 6a) & 51.2             & 6.40e9  \\
-    Apple M3 (10 Cores)                   & 102.4            & 12.8e9  \\
-    Apple M1 Max (32 Cores)               & 409.6            & 51.2e9  \\
-    Nvidia 2080 Super                     & 496              & 62.0e9  \\
-    AMD 7900 XT                           & 800              & 100.0e9 \\
-    \bottomrule
-  \end{tabular}
-  \caption{Vendor-Specified Memory Bandwidth and Expected Throughput (32-bit Elements per Second).\label{tab:memory_bandwidth}}
-\end{table}
-Although all of Dawn's backend APIs support \emph{timestamp queries inside encoders}, Apple GPUs do not, so we are forced to implement our own \emph{Memcpy} kernel to measure memory bandwidth, as opposed to simply timing an API's copy buffer operation. It is well known that \emph{observed} peak memory bandwidth tends to diverge from vendor-listed peak bandwidth, so for completeness we list these figures above. We make a number of observations:
-\begin{itemize}
-  \item \textbf{Intel HD620:} As our HD620 laptop is only equipped with a single memory DIMM, its peak bandwidth is limited to the lower bound, 2.13e9 ele/sec. Thus, our observed bandwidth of 1.498e9 is reasonable.
-  \item \textbf{ARM Mali-G78 MP20 / Pixel 6a (Tensor):} The observed throughput is significantly lower than expected, despite a vendor-listed bandwidth of 6.40e9 ele/sec. The cause of this discrepancy remains unclear, but we note other developers have observed similar speeds.
-  \item \textbf{Apple M1 Pro Max:} Observed throughput matches expectations.
-  \item \textbf{Nvidia 2080 Super:} Observed throughput matches expectations.
-  \item \textbf{AMD 7900 XT:} Our above result, where \emph{DF} was observed to be faster than \emph{Memcpy}, is likely due to compute latency counterintuitively improving memory access patterns, leading to reduced paging. Furthermore, we see that our \emph{DF} throughput is within spec and reasonable.
-\end{itemize}
-
-\subsection{Baseline Comparisons: \emph{Reduce-then-Scan}}
-\label{sec:rts}
-As we desire the most competitive baseline possible, our \emph{RTS} kernels employ the same intra-workgroup scan strategy and tuning parameters as \emph{DF}. Initially, we adopted Merrill and Grimshaw's~\cite{Merrill2009} workgroup raking approach for inter-workgroup processing. However, empirical testing revealed that raking was consistently outperformed—by up to $\sim$15\% on lower-end devices—by a simpler approach that processes the spine serially with a single workgroup. Furthermore, our \emph{RTS} performance closely aligns with the theoretically expected $O(3n)$ global memory movement.
 
 \end{document}
 \endinput
