@@ -173,33 +173,43 @@ fn main(
         atomicStore(&spine[tile_id][threadid.x], t);
     }
 
-    //lookback, single subgroup
+    //lookback, single thread
     if(tile_id != 0u){
         var prev_red = 0u;
         var lookback_id = tile_id - 1u;
-        if(threadid.x < lane_count){
+        if(threadid.x == 0u){
             while(true) {
-                var flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
-                if(unsafeBallot((flag_payload & FLAG_MASK) > FLAG_NOT_READY) == ALL_READY) {
-                    var incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
-                    if(incl_bal != 0u) {
-                        //Did we find any inclusive? Alright, the rest are guaranteed to be on their way, lets just wait.
-                        while(incl_bal != ALL_READY){
-                            flag_payload = select(0u, atomicLoad(&spine[lookback_id][threadid.x]), threadid.x < SPLIT_MEMBERS);
-                            incl_bal = unsafeBallot((flag_payload & FLAG_MASK) == FLAG_INCLUSIVE);
+                var flag_payloads = array<u32, SPLIT_MEMBERS>();
+                flag_payloads[0] = atomicLoad(&spine[lookback_id][0]);
+                if((flag_payloads[0] & FLAG_MASK) > FLAG_NOT_READY) {
+                    if((flag_payloads[0] & FLAG_MASK) == FLAG_INCLUSIVE) {
+                        while ((flag_payloads[1] & FLAG_MASK) != FLAG_INCLUSIVE) {
+                            flag_payloads[1] = atomicLoad(&spine[lookback_id][1]);
                         }
-                        prev_red += join(flag_payload & VALUE_MASK, threadid.x);
-                        if(threadid.x < SPLIT_MEMBERS){
-                            let t = split(prev_red + wg_partials[local_spine - 1u], threadid.x) | FLAG_INCLUSIVE;
-                            atomicStore(&spine[tile_id][threadid.x], t);
-                        }
-                        if(threadid.x == 0u){
-                            wg_broadcast = prev_red;
-                        }
+                        prev_red += (flag_payloads[0] & VALUE_MASK) | (flag_payloads[1] << 16u);
+                        wg_broadcast = prev_red;
+                        prev_red += wg_partials[local_spine - 1u];
+                        atomicStore(&spine[tile_id][0], (prev_red & VALUE_MASK) | FLAG_INCLUSIVE);
+                        atomicStore(&spine[tile_id][1], (prev_red >> 16u) | FLAG_INCLUSIVE);                      
                         break;
                     } else {
-                        prev_red += join(flag_payload & VALUE_MASK, threadid.x);
-                        lookback_id -= 1u;
+                        while ((flag_payloads[1] & FLAG_MASK) == FLAG_NOT_READY) {
+                            flag_payloads[1] = atomicLoad(&spine[lookback_id][1]);
+                        }
+                        if((flag_payloads[1] & FLAG_MASK) == FLAG_INCLUSIVE) {
+                            while ((flag_payloads[0] & FLAG_MASK) != FLAG_INCLUSIVE) {
+                                flag_payloads[0] = atomicLoad(&spine[lookback_id][0]);
+                            }
+                            prev_red += (flag_payloads[0] & VALUE_MASK) | (flag_payloads[1] << 16u);
+                            wg_broadcast = prev_red;
+                            prev_red += wg_partials[local_spine - 1u];
+                            atomicStore(&spine[tile_id][0], (prev_red & VALUE_MASK) | FLAG_INCLUSIVE);
+                            atomicStore(&spine[tile_id][1], (prev_red >> 16u) | FLAG_INCLUSIVE);   
+                            break;
+                        } else {
+                            prev_red += (flag_payloads[0] & VALUE_MASK) | (flag_payloads[1] << 16u);
+                            lookback_id -= 1u;
+                        }
                     }
                 }
             }
