@@ -1016,7 +1016,7 @@ int main(int argc, char* argv[]) {
     constexpr uint32_t MAX_SIMULATE = 9;  // Max power to simulate blocking
 
     const uint32_t size = 1 << 25;   // Size of the scan operation
-    const uint32_t batchSize = 100;  // How many tests to run
+    const uint32_t batchSize = 2000;  // How many tests to run
     const uint32_t
         workTiles =  // Work Tiles/Thread Blocks to launch based on input
         (size + PART_SIZE - 1) / PART_SIZE;
