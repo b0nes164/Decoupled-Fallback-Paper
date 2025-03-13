@@ -31,6 +31,7 @@ struct Shaders {
     ComputeShader csdldf;
     ComputeShader csdldfOcc;
     ComputeShader csdldfSimulate;
+    ComputeShader single;
     ComputeShader memcpy;
     ComputeShader validate;
 };
@@ -454,6 +455,10 @@ void GetAllShaders(const GPUContext& gpu, const GPUBuffers& buffs,
     CreateShaderFromSource(gpu, buffs, &shaders->csdldfSimulate, "main",
                            "Shaders/TestVariants/csdldf_simulate.wgsl",
                            "CSDLDF Simulation", empty);
+
+    CreateShaderFromSource(gpu, buffs, &shaders->single, "main",
+                            "Shaders/single.wgsl",
+                            "Single", empty);
 }
 
 void SetComputePass(const ComputeShader& cs, wgpu::CommandEncoder* comEncoder,
@@ -664,6 +669,17 @@ uint32_t CSDLDF(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
     return passCount;
 }
 
+uint32_t Single(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
+    const uint32_t passCount = 1;
+    if (args.shouldTime) {
+        SetComputePassTimed(args.shaders.single, comEncoder, args.gpu.querySet,
+                            1, 0);
+    } else {
+        SetComputePass(args.shaders.single, comEncoder, 1);
+    }
+    return passCount;
+}
+
 uint32_t CSDLDFSimulate(const TestArgs& args,
                         wgpu::CommandEncoder* comEncoder) {
     const uint32_t passCount = 1;
@@ -843,6 +859,7 @@ enum TestType {
     Full,
     SizeCsdldf,
     SizeMemcpy,
+    SizeSingle,
 };
 
 void TestMemcpy(std::string deviceName, const TestArgs& args) {
@@ -933,6 +950,33 @@ void TestSize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& args) 
     }
 }
 
+void TestSizeSingle(std::string deviceName, uint32_t PART_SIZE, const TestArgs& args) {
+    const uint32_t minPow = 10;
+    const uint32_t maxPow = 25;
+    const uint32_t numSizeTests = (maxPow - minPow + 1);
+    std::vector<DataStruct> dataRecords(numSizeTests, DataStruct(args));
+
+    for (uint32_t i = minPow; i <= maxPow; ++i) {
+        uint32_t currentSize = 1u << i;
+        uint32_t currentWorkTiles = (currentSize + PART_SIZE - 1) / PART_SIZE;
+
+        TestArgs localArgs = args;
+        localArgs.size = currentSize;
+        localArgs.workTiles = currentWorkTiles;
+        InitializeUniforms(localArgs.gpu, &localArgs.buffs, currentSize, currentWorkTiles, 0);
+
+        // Run CSDLDF test
+        Run(deviceName + "Single_Size" + std::to_string(currentSize), localArgs, Single, dataRecords[i - minPow]);
+    }
+
+    if (args.shouldRecord) {
+        for (uint32_t i = minPow; i <= maxPow; ++i) {
+            uint32_t currentSize = 1u << i;
+            RecordToCSV(args, dataRecords[i - minPow], deviceName + "Single_Size" + std::to_string(currentSize));
+        }
+    }
+}
+
 void TestMemcpySize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& args) {
     const uint32_t minPow = 10;
     const uint32_t maxPow = 25;
@@ -963,7 +1007,7 @@ void TestMemcpySize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& 
 
 
 auto printUsage = []() {
-    std::cerr << "Usage: <TestType: \"csdl\"|\"csdldf\"|\"full\"|\"sizecsdldf\"|\"sizememcpy\"> "
+    std::cerr << "Usage: <TestType: \"csdl\"|\"csdldf\"|\"full\"|\"sizecsdldf\"|\"sizememcpy\"|\"sizesingle\"> "
                  "[\"record\"] [deviceName]"
               << std::endl;
 };
@@ -986,6 +1030,8 @@ int main(int argc, char* argv[]) {
         testType = SizeCsdldf;
     } else if (testTypeStr == "sizememcpy") {
         testType = SizeMemcpy;
+    } else if (testTypeStr == "sizesingle") {
+        testType = SizeSingle;
     } else {
         printUsage();
         return EXIT_FAILURE;
@@ -1016,7 +1062,7 @@ int main(int argc, char* argv[]) {
     constexpr uint32_t MAX_SIMULATE = 9;  // Max power to simulate blocking
 
     const uint32_t size = 1 << 25;   // Size of the scan operation
-    const uint32_t batchSize = 2000;  // How many tests to run
+    const uint32_t batchSize = 100;  // How many tests to run
     const uint32_t
         workTiles =  // Work Tiles/Thread Blocks to launch based on input
         (size + PART_SIZE - 1) / PART_SIZE;
@@ -1058,6 +1104,9 @@ int main(int argc, char* argv[]) {
             break;
         case SizeMemcpy:
             TestMemcpySize(deviceName, PART_SIZE, args);
+            break;
+        case SizeSingle:
+            TestSizeSingle(deviceName, PART_SIZE, args);
             break;
         default:
             break;
