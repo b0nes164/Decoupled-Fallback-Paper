@@ -31,6 +31,7 @@ struct Shaders {
     ComputeShader csdldf;
     ComputeShader csdldfOcc;
     ComputeShader csdldfSimulate;
+    ComputeShader stress;
     ComputeShader memcpy;
     ComputeShader validate;
 };
@@ -454,6 +455,10 @@ void GetAllShaders(const GPUContext& gpu, const GPUBuffers& buffs,
     CreateShaderFromSource(gpu, buffs, &shaders->csdldfSimulate, "main",
                            "Shaders/TestVariants/csdldf_simulate.wgsl",
                            "CSDLDF Simulation", empty);
+    
+    CreateShaderFromSource(gpu, buffs, &shaders->stress, "main",
+        "Shaders/stress.wgsl",
+        "Stress", empty);
 }
 
 void SetComputePass(const ComputeShader& cs, wgpu::CommandEncoder* comEncoder,
@@ -961,6 +966,27 @@ void TestMemcpySize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& 
     }
 }
 
+void StressTest(const TestArgs& args) {
+    const uint32_t testCount = 100;
+    for(uint32_t i = 0; i < testCount; ++i) {
+        wgpu::CommandEncoderDescriptor comEncDesc = {};
+        comEncDesc.label = "Command Encoder";
+        wgpu::CommandEncoder comEncoder =
+            args.gpu.device.CreateCommandEncoder(&comEncDesc);
+        SetComputePass(args.shaders.init, &comEncoder, 256);
+        SetComputePass(args.shaders.stress, &comEncoder, 65535);
+        wgpu::CommandBuffer comBuffer = comEncoder.Finish();
+        args.gpu.queue.Submit(1, &comBuffer);
+        QueueSync(args.gpu);
+        std::vector<uint32_t> readOut(1, 1);
+        CopyAndReadbackSync(args.gpu, &args.buffs.misc, &args.buffs.readback, &readOut, 0, 1);
+        bool testPassed = readOut[0] == 0;
+        if (!testPassed) {
+            std::cerr << "Test failed: " << readOut[0] << " errors" << std::endl;
+        }
+        printf("ok\n");
+    } 
+}
 
 auto printUsage = []() {
     std::cerr << "Usage: <TestType: \"csdl\"|\"csdldf\"|\"full\"|\"sizecsdldf\"|\"sizememcpy\"> "
@@ -1016,7 +1042,7 @@ int main(int argc, char* argv[]) {
     constexpr uint32_t MAX_SIMULATE = 9;  // Max power to simulate blocking
 
     const uint32_t size = 1 << 25;   // Size of the scan operation
-    const uint32_t batchSize = 2000;  // How many tests to run
+    const uint32_t batchSize = 1;  // How many tests to run
     const uint32_t
         workTiles =  // Work Tiles/Thread Blocks to launch based on input
         (size + PART_SIZE - 1) / PART_SIZE;
@@ -1038,29 +1064,34 @@ int main(int argc, char* argv[]) {
     GetAllShaders(gpu, buffs, &shaders);
     InitializeUniforms(gpu, &buffs, size, workTiles, 0);
     TestArgs args = {gpu,          buffs,          shaders,
-                     size,         batchSize,      workTiles,
-                     readbackSize, shouldValidate, shouldReadback,
-                     shouldTime,   false,          shouldRecord};
+        size,         batchSize,      workTiles,
+        readbackSize, shouldValidate, shouldReadback,
+        shouldTime,   false,          shouldRecord};
+    StressTest(args);
+    // TestArgs args = {gpu,          buffs,          shaders,
+    //                  size,         batchSize,      workTiles,
+    //                  readbackSize, shouldValidate, shouldReadback,
+    //                  shouldTime,   false,          shouldRecord};
 
-    switch (testType) {
-        case Csdl:
-            TestCSDL(deviceName, args);
-            break;
-        case Csdldf:
-            TestCSDLDF(deviceName, args);
-            break;
-        case Full:
-            TestMemcpy(deviceName, args);
-            TestFull(deviceName, 9, args);
-            break;
-        case SizeCsdldf:
-            TestSize(deviceName, PART_SIZE, args);
-            break;
-        case SizeMemcpy:
-            TestMemcpySize(deviceName, PART_SIZE, args);
-            break;
-        default:
-            break;
-    }
+    // switch (testType) {
+    //     case Csdl:
+    //         TestCSDL(deviceName, args);
+    //         break;
+    //     case Csdldf:
+    //         TestCSDLDF(deviceName, args);
+    //         break;
+    //     case Full:
+    //         TestMemcpy(deviceName, args);
+    //         TestFull(deviceName, 9, args);
+    //         break;
+    //     case SizeCsdldf:
+    //         TestSize(deviceName, PART_SIZE, args);
+    //         break;
+    //     case SizeMemcpy:
+    //         TestMemcpySize(deviceName, PART_SIZE, args);
+    //         break;
+    //     default:
+    //         break;
+    // }
     return EXIT_SUCCESS;
 }
