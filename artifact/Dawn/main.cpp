@@ -70,7 +70,7 @@ struct DataStruct {
     std::vector<uint32_t> successfulInsertions;
 
     DataStruct(const TestArgs& args) {
-        if(args.shouldRecord){
+        if (args.shouldRecord) {
             time.resize(args.batchSize);
             totalSpins.resize(args.batchSize);
             lookbackLength.resize(args.batchSize);
@@ -82,7 +82,7 @@ struct DataStruct {
 
 void GetGPUContext(GPUContext* context, uint32_t timestampCount) {
     wgpu::InstanceDescriptor instanceDescriptor{};
-    instanceDescriptor.features.timedWaitAnyEnable = true;
+    instanceDescriptor.capabilities.timedWaitAnyEnable = true;
     wgpu::Instance instance = wgpu::CreateInstance(&instanceDescriptor);
     if (instance == nullptr) {
         std::cerr << "Instance creation failed!\n";
@@ -471,7 +471,7 @@ void SetComputePassTimed(const ComputeShader& cs,
                          wgpu::CommandEncoder* comEncoder,
                          const wgpu::QuerySet& querySet, uint32_t workTiles,
                          uint32_t timeStampOffset) {
-    wgpu::ComputePassTimestampWrites timeStamp = {};
+    wgpu::PassTimestampWrites timeStamp = {};
     timeStamp.beginningOfPassWriteIndex = timeStampOffset * 2;
     timeStamp.endOfPassWriteIndex = timeStampOffset * 2 + 1;
     timeStamp.querySet = querySet;
@@ -735,7 +735,8 @@ void RecordToCSV(const TestArgs& args, const DataStruct& data,
 }
 
 void Run(std::string testLabel, const TestArgs& args,
-         uint32_t (*MainPass)(const TestArgs&, wgpu::CommandEncoder*), DataStruct& data) {
+         uint32_t (*MainPass)(const TestArgs&, wgpu::CommandEncoder*),
+         DataStruct& data) {
     uint32_t testsPassed = 0;
     uint64_t totalTime = 0ULL;
     double totalSpins = 0;
@@ -850,7 +851,7 @@ void TestMemcpy(std::string deviceName, const TestArgs& args) {
     memcpyArgs.shouldValidate = false;
     DataStruct data(memcpyArgs);
     Run(deviceName + "Memcpy", memcpyArgs, Memcpy, data);
-    if(memcpyArgs.shouldRecord) {
+    if (memcpyArgs.shouldRecord) {
         RecordToCSV(memcpyArgs, data, deviceName + "Memcpy");
     }
 }
@@ -872,7 +873,8 @@ void TestCSDLDF(std::string deviceName, const TestArgs& args) {
     }
 }
 
-void TestFull(std::string deviceName, uint32_t MAX_SIMULATE, const TestArgs& args) {
+void TestFull(std::string deviceName, uint32_t MAX_SIMULATE,
+              const TestArgs& args) {
     std::vector<DataStruct> data(MAX_SIMULATE + 3, DataStruct(args));
 
     DataStruct& rtsData = data[0];
@@ -886,13 +888,16 @@ void TestFull(std::string deviceName, uint32_t MAX_SIMULATE, const TestArgs& arg
 
     TestArgs simArgs = args;
     simArgs.shouldGetStats = true;
-    InitializeUniforms(simArgs.gpu, &simArgs.buffs, simArgs.size, simArgs.workTiles, 0xffffffff);
+    InitializeUniforms(simArgs.gpu, &simArgs.buffs, simArgs.size,
+                       simArgs.workTiles, 0xffffffff);
     Run(deviceName + "CSDLDF_Stats", args, CSDLDFSimulate, csdlDFStatsData);
 
     for (uint32_t i = 0; i <= MAX_SIMULATE; ++i) {
         uint32_t mask = (1 << i) - 1;
-        InitializeUniforms(simArgs.gpu, &simArgs.buffs, simArgs.size, simArgs.workTiles, mask);
-        Run(deviceName + "CSDLDF_" + std::to_string(1 << i), args, CSDLDFSimulate, data[3 + i]);
+        InitializeUniforms(simArgs.gpu, &simArgs.buffs, simArgs.size,
+                           simArgs.workTiles, mask);
+        Run(deviceName + "CSDLDF_" + std::to_string(1 << i), args,
+            CSDLDFSimulate, data[3 + i]);
     }
 
     if (args.shouldRecord) {
@@ -901,12 +906,14 @@ void TestFull(std::string deviceName, uint32_t MAX_SIMULATE, const TestArgs& arg
         RecordToCSV(args, csdlDFStatsData, deviceName + "CSDLDF_Stats");
 
         for (uint32_t i = 0; i <= MAX_SIMULATE; ++i) {
-            RecordToCSV(simArgs, data[3 + i], deviceName + "CSDLDF_" + std::to_string(1 << i));
+            RecordToCSV(simArgs, data[3 + i],
+                        deviceName + "CSDLDF_" + std::to_string(1 << i));
         }
     }
 }
 
-void TestSize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& args) {
+void TestSize(std::string deviceName, uint32_t PART_SIZE,
+              const TestArgs& args) {
     const uint32_t minPow = 10;
     const uint32_t maxPow = 25;
     const uint32_t numSizeTests = (maxPow - minPow + 1);
@@ -919,22 +926,27 @@ void TestSize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& args) 
         TestArgs localArgs = args;
         localArgs.size = currentSize;
         localArgs.workTiles = currentWorkTiles;
-        InitializeUniforms(localArgs.gpu, &localArgs.buffs, currentSize, currentWorkTiles, 0);
+        InitializeUniforms(localArgs.gpu, &localArgs.buffs, currentSize,
+                           currentWorkTiles, 0);
 
         // Run CSDLDF test
-        Run(deviceName + "CSDLDF_Size_" + std::to_string(currentSize), localArgs, CSDLDF, dataRecords[i - minPow]);
+        Run(deviceName + "CSDLDF_Size_" + std::to_string(currentSize),
+            localArgs, CSDLDF, dataRecords[i - minPow]);
     }
 
     if (args.shouldRecord) {
         for (uint32_t i = minPow; i <= maxPow; ++i) {
             uint32_t currentSize = 1u << i;
-            RecordToCSV(args, dataRecords[i - minPow], deviceName + "CSDLDF_Size_" + std::to_string(currentSize));
+            RecordToCSV(
+                args, dataRecords[i - minPow],
+                deviceName + "CSDLDF_Size_" + std::to_string(currentSize));
         }
     }
 }
 
-void TestMemcpySize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& args) {
-    const uint32_t minPow = 10;
+void TestMemcpySize(std::string deviceName, uint32_t PART_SIZE,
+                    const TestArgs& args) {
+    const uint32_t minPow = 25;
     const uint32_t maxPow = 25;
     const uint32_t numSizeTests = (maxPow - minPow + 1);
     std::vector<DataStruct> memcpyDataRecords(numSizeTests, DataStruct(args));
@@ -947,23 +959,27 @@ void TestMemcpySize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& 
         memcpyArgs.size = currentSize;
         memcpyArgs.shouldValidate = false;
         memcpyArgs.workTiles = currentWorkTiles;
-        InitializeUniforms(memcpyArgs.gpu, &memcpyArgs.buffs, currentSize, currentWorkTiles, 0);
+        InitializeUniforms(memcpyArgs.gpu, &memcpyArgs.buffs, currentSize,
+                           currentWorkTiles, 0);
 
         // Run Memcpy test
-        Run(deviceName + "Memcpy_Size_" + std::to_string(currentSize), memcpyArgs, Memcpy, memcpyDataRecords[i - minPow]);
+        Run(deviceName + "Memcpy_Size_" + std::to_string(currentSize),
+            memcpyArgs, Memcpy, memcpyDataRecords[i - minPow]);
     }
 
     if (args.shouldRecord) {
         for (uint32_t i = minPow; i <= maxPow; ++i) {
             uint32_t currentSize = 1u << i;
-            RecordToCSV(args, memcpyDataRecords[i - minPow], deviceName + "Memcpy_Size_" + std::to_string(currentSize));
+            RecordToCSV(
+                args, memcpyDataRecords[i - minPow],
+                deviceName + "Memcpy_Size_" + std::to_string(currentSize));
         }
     }
 }
 
-
 auto printUsage = []() {
-    std::cerr << "Usage: <TestType: \"csdl\"|\"csdldf\"|\"full\"|\"sizecsdldf\"|\"sizememcpy\"> "
+    std::cerr << "Usage: <TestType: "
+                 "\"csdl\"|\"csdldf\"|\"full\"|\"sizecsdldf\"|\"sizememcpy\"> "
                  "[\"record\"] [deviceName]"
               << std::endl;
 };
@@ -1015,7 +1031,7 @@ int main(int argc, char* argv[]) {
         8192;                             // Max size of our readback buffer
     constexpr uint32_t MAX_SIMULATE = 9;  // Max power to simulate blocking
 
-    const uint32_t size = 1 << 25;   // Size of the scan operation
+    const uint32_t size = 1 << 25;    // Size of the scan operation
     const uint32_t batchSize = 2000;  // How many tests to run
     const uint32_t
         workTiles =  // Work Tiles/Thread Blocks to launch based on input
