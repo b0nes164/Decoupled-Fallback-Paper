@@ -82,7 +82,7 @@ struct DataStruct {
 
 void GetGPUContext(GPUContext* context, uint32_t timestampCount) {
     wgpu::InstanceDescriptor instanceDescriptor{};
-    instanceDescriptor.capabilities.timedWaitAnyEnable = true;
+    instanceDescriptor.features.timedWaitAnyEnable = true;
     wgpu::Instance instance = wgpu::CreateInstance(&instanceDescriptor);
     if (instance == nullptr) {
         std::cerr << "Instance creation failed!\n";
@@ -471,7 +471,7 @@ void SetComputePassTimed(const ComputeShader& cs,
                          wgpu::CommandEncoder* comEncoder,
                          const wgpu::QuerySet& querySet, uint32_t workTiles,
                          uint32_t timeStampOffset) {
-    wgpu::PassTimestampWrites timeStamp = {};
+    wgpu::ComputePassTimestampWrites timeStamp = {};
     timeStamp.beginningOfPassWriteIndex = timeStampOffset * 2;
     timeStamp.endOfPassWriteIndex = timeStampOffset * 2 + 1;
     timeStamp.querySet = querySet;

@@ -26,10 +26,10 @@ var<storage, read_write> scan_in: array<vec4<u32>>;
 var<storage, read_write> scan_out: array<vec4<u32>>;
 
 @group(0) @binding(3)
-var<storage, read_write> unused_1: u32;
+var<storage, read_write> scan_bump: atomic<u32>;
 
 @group(0) @binding(4)
-var<storage, read_write> unused_2: array<u32>;
+var<storage, read_write> order: array<atomic<u32>>;
 
 @group(0) @binding(5)
 var<storage, read_write> unused_3: array<u32>;
@@ -37,6 +37,13 @@ var<storage, read_write> unused_3: array<u32>;
 const BLOCK_DIM = 256u;
 const VEC4_SPT = 4u;
 const VEC_TILE_SIZE = BLOCK_DIM * VEC4_SPT;
+
+var<workgroup> wg_broadcast: u32;
+
+const READY = 1u;
+const INC = 2u;
+const MASK = 3u;
+
 
 @compute @workgroup_size(BLOCK_DIM, 1, 1)
 fn main(
@@ -64,6 +71,11 @@ fn main(
     //     }
     // }
 
+    if(threadid.x == 0u){
+        wg_broadcast = atomicAdd(&scan_bump, 1u);
+    }
+    let tile_id = workgroupUniformLoad(&wg_broadcast);
+
     let sid = threadid.x / lane_count;
     let s_offset = laneid + sid * lane_count * VEC4_SPT;
     var t = array<vec4<u32>, VEC4_SPT>();
@@ -74,12 +86,40 @@ fn main(
             i += lane_count;
         }
     }
+    workgroupBarrier();
 
-    for (var k = 0u; k < VEC4_SPT; k += 1u) {
-        for (var z = 0; z < 32; z += 1) {
-            t[k].x = (t[k].x * 1129100271u) ^ (t[k].y * 1129100273u) ^
-                     (t[k].z * 1129100281u) ^ (t[k].w * 1129100283u);
+    if(threadid.x == 0u){
+        atomicStore(&order[tile_id], select(READY, INC, tile_id == 0u));
+    }
+
+    if(tile_id != 0u){
+        if (threadid.x == 0u) {
+            var lookback_id = tile_id - 1u;
+            while (true) {
+                var p = 0u;
+                var spin_count = 0u;
+                while (spin_count < 4u) {
+                    p = atomicLoad(&order[lookback_id]);
+                    if (p != 0u) {
+                        if (p == INC) {
+                            atomicStore(&order[tile_id], INC);
+                            break;
+                        } else {
+                            lookback_id -= 1u;
+                        }
+                    } else {
+                        spin_count += 1u;
+                    }
+                }
+
+                if (p == INC) {
+                    break;
+                } else if (spin_count == 4u) {
+                    lookback_id -= 1u;
+                }
+            }
         }
+        workgroupBarrier();
     }
 
     {
@@ -89,4 +129,25 @@ fn main(
             i += lane_count;
         }
     }
+
+    // if(threadid.x == 0) {
+    //     let o = atomicAdd(&order[params.work_tiles + 1u], 1u);
+    //     let i = o / 4u;
+    //     let ii = o & 3u;
+    //     if (ii == 0u) {
+    //         scan_out[i].x = tile_id;
+    //     }
+
+    //     if (ii == 1u) {
+    //         scan_out[i].y = tile_id;
+    //     }
+
+    //     if (ii == 2u) {
+    //         scan_out[i].z = tile_id;
+    //     }
+
+    //     if (ii == 3u) {
+    //         scan_out[i].w = tile_id;
+    //     }
+    // }
 }
