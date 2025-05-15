@@ -51,26 +51,6 @@ fn main(
     @builtin(subgroup_invocation_id) laneid: u32,
     @builtin(subgroup_size) lane_count: u32,
     @builtin(workgroup_id) wgid: vec3<u32>) {
-    // let end = (wgid.x + 1u) * VEC_TILE_SIZE;
-    // if(wgid.x < params.work_tiles - 1u){
-    //     for(var i = threadid.x + wgid.x * VEC_TILE_SIZE; i < end; i += BLOCK_DIM){
-    //         var t = scan_in[i];
-    //         for (var z = 0; z < 16; z += 1) {
-    //             t.x = (t.x * 1129100271u) ^ (t.y * 1129100273u) ^
-    //                   (t.z * 1129100281u) ^ (t.w * 1129100283u);
-    //         }
-    //         scan_out[i] = t;
-    //     }
-    // }
-
-    // if(wgid.x == params.work_tiles - 1u){
-    //     for(var i = threadid.x + wgid.x * VEC_TILE_SIZE; i < end; i += BLOCK_DIM){
-    //         if(i < params.vec_size){
-    //             scan_out[i] = scan_in[i];
-    //         }
-    //     }
-    // }
-
     if(threadid.x == 0u){
         wg_broadcast = atomicAdd(&scan_bump, 1u);
     }
@@ -91,6 +71,8 @@ fn main(
     if(threadid.x == 0u){
         atomicStore(&order[tile_id], select(READY, INC, tile_id == 0u));
     }
+
+    // With Fallback :^):
 
     if(tile_id != 0u){
         if (threadid.x == 0u) {
@@ -122,6 +104,26 @@ fn main(
         workgroupBarrier();
     }
 
+    // No fallback :^(
+
+    // if(tile_id != 0u){
+    //     if (threadid.x == 0u) {
+    //         var lookback_id = tile_id - 1u;
+    //         while (true) {
+    //             var p = atomicLoad(&order[lookback_id]);
+    //             if (p != 0u) {
+    //                 if (p == INC) {
+    //                     atomicStore(&order[tile_id], INC);
+    //                     break;
+    //                 } else {
+    //                     lookback_id -= 1u;
+    //                 }
+    //             }
+    //         }
+    //     }
+    //     workgroupBarrier();
+    // }
+
     {
         var i = s_offset + wgid.x * VEC_TILE_SIZE;
         for(var k = 0u; k < VEC4_SPT; k += 1u){
@@ -129,25 +131,4 @@ fn main(
             i += lane_count;
         }
     }
-
-    // if(threadid.x == 0) {
-    //     let o = atomicAdd(&order[params.work_tiles + 1u], 1u);
-    //     let i = o / 4u;
-    //     let ii = o & 3u;
-    //     if (ii == 0u) {
-    //         scan_out[i].x = tile_id;
-    //     }
-
-    //     if (ii == 1u) {
-    //         scan_out[i].y = tile_id;
-    //     }
-
-    //     if (ii == 2u) {
-    //         scan_out[i].z = tile_id;
-    //     }
-
-    //     if (ii == 3u) {
-    //         scan_out[i].w = tile_id;
-    //     }
-    // }
 }

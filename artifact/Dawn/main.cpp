@@ -82,7 +82,7 @@ struct DataStruct {
 
 void GetGPUContext(GPUContext* context, uint32_t timestampCount) {
     wgpu::InstanceDescriptor instanceDescriptor{};
-    instanceDescriptor.features.timedWaitAnyEnable = true;
+    instanceDescriptor.capabilities.timedWaitAnyEnable = true;
     wgpu::Instance instance = wgpu::CreateInstance(&instanceDescriptor);
     if (instance == nullptr) {
         std::cerr << "Instance creation failed!\n";
@@ -471,7 +471,7 @@ void SetComputePassTimed(const ComputeShader& cs,
                          wgpu::CommandEncoder* comEncoder,
                          const wgpu::QuerySet& querySet, uint32_t workTiles,
                          uint32_t timeStampOffset) {
-    wgpu::ComputePassTimestampWrites timeStamp = {};
+    wgpu::PassTimestampWrites timeStamp = {};
     timeStamp.beginningOfPassWriteIndex = timeStampOffset * 2;
     timeStamp.endOfPassWriteIndex = timeStampOffset * 2 + 1;
     timeStamp.querySet = querySet;
@@ -1032,7 +1032,7 @@ int main(int argc, char* argv[]) {
     constexpr uint32_t MAX_SIMULATE = 9;  // Max power to simulate blocking
 
     const uint32_t size = 1 << 25;    // Size of the scan operation
-    const uint32_t batchSize = 2000;  // How many tests to run
+    const uint32_t batchSize = 500;  // How many tests to run
     const uint32_t
         workTiles =  // Work Tiles/Thread Blocks to launch based on input
         (size + PART_SIZE - 1) / PART_SIZE;
