@@ -97,7 +97,11 @@ fn main(
                 if (p == INC) {
                     break;
                 } else if (spin_count == 4u) {
-                    lookback_id -= 1u;
+                    if (lookback_id == 0u) {
+                        break;
+                    } else {
+                        lookback_id -= 1u;
+                    }
                 }
             }
         }
