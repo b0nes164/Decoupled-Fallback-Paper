@@ -39,7 +39,8 @@
 %% For submission and review of your manuscript please change the
 %% command to \documentclass[manuscript, screen, review]{acmart}.
 
-\documentclass[acmsmall, manuscript, screen, review, anonymous]{acmart}
+\documentclass[sigconf,screen]{acmart}
+\settopmatter{printacmref=false, printfolios=false}
 %%
 %% \BibTeX command to typeset BibTeX logo in the docs
 \AtBeginDocument{%
@@ -404,7 +405,7 @@ Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3
 \end{algorithm}
 
 \subsection{Workgroup-Wide Scan}
-The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{10.1145/322217.322232} scan network embedded with Kogge-Stone~\cite{5009159} subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a subgroup \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase causes no performance degradation due to our modest overall use of shared memory, such as our deliberate retention of vectors in registers and the efficiency of subgroup raking. 
+The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{10.1145/322217.322232} scan network embedded with Kogge-Stone~\cite{5009159} subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a subgroup \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase causes no performance degradation due to our modest overall use of shared memory, such as our deliberate retention of vectors in registers and the efficiency of subgroup raking.
 
 For a subgroup of size $s$, the Kogge-Stone subgroup network has a work complexity of $s \log_2 s$. Given an input of size $n$, the work complexity is:
 \begin{equation}
