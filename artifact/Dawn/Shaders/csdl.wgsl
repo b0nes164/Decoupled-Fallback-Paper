@@ -17,7 +17,7 @@ struct ScanParameters
 };
 
 @group(0) @binding(0)
-var<uniform> params : ScanParameters; 
+var<uniform> params : ScanParameters;
 
 @group(0) @binding(1)
 var<storage, read_write> scan_in: array<vec4<u32>>;
@@ -26,7 +26,7 @@ var<storage, read_write> scan_in: array<vec4<u32>>;
 var<storage, read_write> scan_out: array<vec4<u32>>;
 
 @group(0) @binding(3)
-var<storage, read_write> scan_bump: atomic<u32>;
+var<storage, read_write> scan_bump: array<atomic<u32>>;
 
 @group(0) @binding(4)
 var<storage, read_write> spine: array<array<atomic<u32>, 2>>;
@@ -66,7 +66,7 @@ fn unsafeShuffle(x: u32, source: u32) -> u32 {
 //we never need them across all subgroup sizes
 @diagnostic(off, subgroup_uniformity)
 fn unsafeBallot(pred: bool) -> u32 {
-    return subgroupBallot(pred).x;  
+    return subgroupBallot(pred).x;
 }
 
 fn join(mine: u32, tid: u32) -> u32 {
@@ -84,12 +84,12 @@ fn main(
     @builtin(local_invocation_id) threadid: vec3<u32>,
     @builtin(subgroup_invocation_id) laneid: u32,
     @builtin(subgroup_size) lane_count: u32) {
-    
+
     let sid = threadid.x / lane_count;  //Caution 1D workgoup ONLY! Ok, but technically not in HLSL spec
-    
+
     //acquire partition index, set the lock
     if(threadid.x == 0u){
-        wg_broadcast = atomicAdd(&scan_bump, 1u);
+        wg_broadcast = atomicAdd(&scan_bump[0u], 1u);
     }
     let tile_id = workgroupUniformLoad(&wg_broadcast);
     let s_offset = laneid + sid * lane_count * VEC4_SPT;
@@ -138,7 +138,7 @@ fn main(
     let lane_log = u32(countTrailingZeros(lane_count));
     let local_spine = BLOCK_DIM >> lane_log;
     let aligned_size = 1u << ((u32(countTrailingZeros(local_spine)) + lane_log - 1u) / lane_log * lane_log);
-    {   
+    {
         var offset = 0u;
         var top_offset = 0u;
         let lane_pred = laneid == lane_count - 1u;
@@ -164,7 +164,7 @@ fn main(
             top_offset += step;
             offset += lane_log;
         }
-    }   
+    }
     workgroupBarrier();
 
     //Device broadcast

@@ -5,6 +5,7 @@
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -23,7 +24,8 @@ struct ComputeShader {
 };
 
 struct Shaders {
-    ComputeShader init;
+    ComputeShader initPass;
+    ComputeShader initBatch;
     ComputeShader reduce;
     ComputeShader spineScan;
     ComputeShader downsweep;
@@ -47,14 +49,27 @@ struct GPUBuffers {
     wgpu::Buffer misc;
 };
 
+enum TestType {
+    Rts,
+    Csdl,
+    Csdldf,
+    Full,
+    SizeCsdldf,
+    SizeMemcpy,
+};
+
 struct TestArgs {
     GPUContext& gpu;
     GPUBuffers& buffs;
     Shaders& shaders;
     uint32_t size;
-    uint32_t batchSize;
     uint32_t workTiles;
     uint32_t readbackSize;
+    uint32_t warmupRuns = 1;
+    uint32_t totalRuns;
+    uint32_t batchSize;
+    uint32_t maxQueryEntries;
+    uint32_t miscStride;
     bool shouldValidate = false;
     bool shouldReadback = false;
     bool shouldTime = false;
@@ -62,27 +77,38 @@ struct TestArgs {
     bool shouldRecord = false;
 };
 
+struct TestStatistics {
+    uint64_t totalTime = 0ULL;
+    uint64_t maxTime = 0ULL;
+    uint64_t minTime = ~0ULL;
+    std::map<uint64_t, unsigned int> timeMap;
+    uint64_t totalSpins = 0;
+    uint64_t totalLookbackLength = 0;
+    uint64_t totalFallbacksInitiated = 0;
+    uint64_t totalSuccessfulInsertions = 0;
+};
+
 struct DataStruct {
     std::vector<double> time;
-    std::vector<double> totalSpins;
-    std::vector<double> lookbackLength;
+    std::vector<uint32_t> totalSpins;
+    std::vector<uint32_t> lookbackLength;
     std::vector<uint32_t> fallbacksInitiated;
     std::vector<uint32_t> successfulInsertions;
 
     DataStruct(const TestArgs& args) {
-        if(args.shouldRecord){
-            time.resize(args.batchSize);
-            totalSpins.resize(args.batchSize);
-            lookbackLength.resize(args.batchSize);
-            fallbacksInitiated.resize(args.batchSize);
-            successfulInsertions.resize(args.batchSize);
+        if (args.shouldRecord) {
+            time.resize(args.totalRuns);
+            totalSpins.resize(args.totalRuns);
+            lookbackLength.resize(args.totalRuns);
+            fallbacksInitiated.resize(args.totalRuns);
+            successfulInsertions.resize(args.totalRuns);
         }
     }
 };
 
-void GetGPUContext(GPUContext* context, uint32_t timestampCount) {
+void GetGPUContext(GPUContext* context, uint32_t maxQueryEntries) {
     wgpu::InstanceDescriptor instanceDescriptor{};
-    instanceDescriptor.features.timedWaitAnyEnable = true;
+    instanceDescriptor.capabilities.timedWaitAnyEnable = true;
     wgpu::Instance instance = wgpu::CreateInstance(&instanceDescriptor);
     if (instance == nullptr) {
         std::cerr << "Instance creation failed!\n";
@@ -143,7 +169,22 @@ void GetGPUContext(GPUContext* context, uint32_t timestampCount) {
                   << std::endl;
     };
 
+    wgpu::DawnTogglesDescriptor toggles = {};
+    std::vector<const char*> enabled_toggles;
+    enabled_toggles.push_back("allow_unsafe_apis");
+    enabled_toggles.push_back("disable_robustness");
+    enabled_toggles.push_back("disable_workgroup_init");
+    enabled_toggles.push_back("skip_validation");
+    toggles.enabledToggleCount = enabled_toggles.size();
+    toggles.enabledToggles = enabled_toggles.data();
+
+    std::vector<const char*> disabled_toggles;
+    disabled_toggles.push_back("timestamp_quantization");
+    toggles.disabledToggleCount = disabled_toggles.size();
+    toggles.disabledToggles = disabled_toggles.data();
+
     wgpu::DeviceDescriptor devDescriptor{};
+    devDescriptor.nextInChain = &toggles;
     devDescriptor.requiredFeatures = reqFeatures.data();
     devDescriptor.requiredFeatureCount =
         static_cast<uint32_t>(reqFeatures.size());
@@ -171,7 +212,7 @@ void GetGPUContext(GPUContext* context, uint32_t timestampCount) {
 
     wgpu::QuerySetDescriptor querySetDescriptor{};
     querySetDescriptor.label = "Timestamp Query Set";
-    querySetDescriptor.count = timestampCount * 2;
+    querySetDescriptor.count = maxQueryEntries;
     querySetDescriptor.type = wgpu::QueryType::Timestamp;
     wgpu::QuerySet querySet = device.CreateQuerySet(&querySetDescriptor);
 
@@ -182,8 +223,8 @@ void GetGPUContext(GPUContext* context, uint32_t timestampCount) {
 }
 
 void GetGPUBuffers(const wgpu::Device& device, GPUBuffers* buffs,
-                   uint32_t workTiles, uint32_t timestampCount, uint32_t size,
-                   uint32_t miscSize, uint32_t maxReadbackSize) {
+                   uint32_t workTiles, uint32_t maxQueryEntries, uint32_t size,
+                   uint32_t miscStride, uint32_t maxReadbackSize) {
     wgpu::BufferDescriptor infoDesc = {};
     infoDesc.label = "Info";
     infoDesc.size = sizeof(uint32_t) * 4;
@@ -204,7 +245,7 @@ void GetGPUBuffers(const wgpu::Device& device, GPUBuffers* buffs,
 
     wgpu::BufferDescriptor scanBumpDesc = {};
     scanBumpDesc.label = "Scan Atomic Bump";
-    scanBumpDesc.size = sizeof(uint32_t);
+    scanBumpDesc.size = sizeof(uint32_t) * 2;
     scanBumpDesc.usage = wgpu::BufferUsage::Storage;
     wgpu::Buffer scanBump = device.CreateBuffer(&scanBumpDesc);
 
@@ -216,14 +257,14 @@ void GetGPUBuffers(const wgpu::Device& device, GPUBuffers* buffs,
 
     wgpu::BufferDescriptor timestampDesc = {};
     timestampDesc.label = "Timestamp";
-    timestampDesc.size = sizeof(uint64_t) * timestampCount * 2;
+    timestampDesc.size = sizeof(uint64_t) * maxQueryEntries * 2;
     timestampDesc.usage =
         wgpu::BufferUsage::QueryResolve | wgpu::BufferUsage::CopySrc;
     wgpu::Buffer timestamp = device.CreateBuffer(&timestampDesc);
 
     wgpu::BufferDescriptor timestampReadDesc = {};
     timestampReadDesc.label = "Timestamp Readback";
-    timestampReadDesc.size = sizeof(uint64_t) * timestampCount * 2;
+    timestampReadDesc.size = sizeof(uint64_t) * maxQueryEntries * 2;
     timestampReadDesc.usage =
         wgpu::BufferUsage::MapRead | wgpu::BufferUsage::CopyDst;
     wgpu::Buffer timestampReadback = device.CreateBuffer(&timestampReadDesc);
@@ -237,7 +278,7 @@ void GetGPUBuffers(const wgpu::Device& device, GPUBuffers* buffs,
 
     wgpu::BufferDescriptor miscDesc = {};
     miscDesc.label = "Miscellaneous";
-    miscDesc.size = sizeof(uint32_t) * miscSize;
+    miscDesc.size = sizeof(uint32_t) * miscStride * (maxQueryEntries / 2 + 1);
     miscDesc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopySrc;
     wgpu::Buffer misc = device.CreateBuffer(&miscDesc);
 
@@ -423,8 +464,11 @@ void CreateShaderFromSource(const GPUContext& gpu, const GPUBuffers& buffs,
 void GetAllShaders(const GPUContext& gpu, const GPUBuffers& buffs,
                    Shaders* shaders) {
     std::vector<std::string> empty;
-    CreateShaderFromSource(gpu, buffs, &shaders->init, "main",
-                           "Shaders/init.wgsl", "Init", empty);
+    CreateShaderFromSource(gpu, buffs, &shaders->initPass, "initPass",
+                           "Shaders/init.wgsl", "InitPass", empty);
+
+    CreateShaderFromSource(gpu, buffs, &shaders->initBatch, "initBatch",
+                           "Shaders/init.wgsl", "InitBatch", empty);
 
     CreateShaderFromSource(gpu, buffs, &shaders->reduce, "reduce",
                            "Shaders/rts.wgsl", "Reduce", empty);
@@ -471,7 +515,7 @@ void SetComputePassTimed(const ComputeShader& cs,
                          wgpu::CommandEncoder* comEncoder,
                          const wgpu::QuerySet& querySet, uint32_t workTiles,
                          uint32_t timeStampOffset) {
-    wgpu::ComputePassTimestampWrites timeStamp = {};
+    wgpu::PassTimestampWrites timeStamp = {};
     timeStamp.beginningOfPassWriteIndex = timeStampOffset * 2;
     timeStamp.endOfPassWriteIndex = timeStampOffset * 2 + 1;
     timeStamp.querySet = querySet;
@@ -584,31 +628,15 @@ void ReadbackAndPrintSync(const GPUContext& gpu, GPUBuffers* buffs,
     }
 }
 
-void ResolveTimestampQuery(GPUBuffers* buffs, const wgpu::QuerySet& query,
-                           const wgpu::CommandEncoder* comEncoder,
-                           uint32_t passCount) {
-    uint32_t entriesToResolve = passCount * 2;
+void ResolveTimestampQuerys(GPUBuffers* buffs, const wgpu::QuerySet& query,
+                            wgpu::CommandEncoder* comEncoder,
+                            uint32_t queryEntriesToResolve) {
     (*comEncoder)
-        .ResolveQuerySet(query, 0, entriesToResolve, buffs->timestamp, 0ULL);
+        .ResolveQuerySet(query, 0, queryEntriesToResolve, buffs->timestamp,
+                         0ULL);
     (*comEncoder)
         .CopyBufferToBuffer(buffs->timestamp, 0ULL, buffs->readbackTimestamp,
-                            0ULL, entriesToResolve * sizeof(uint64_t));
-}
-
-uint64_t GetTime(const GPUContext& gpu, GPUBuffers* buffs, uint32_t passCount) {
-    uint64_t totalTime = 0ULL;
-    std::vector<uint64_t> timeOut(passCount * 2);
-    ReadbackSync(gpu, &buffs->readbackTimestamp, &timeOut,
-                 passCount * 2 * sizeof(uint64_t));
-    for (uint32_t i = 0; i < passCount; ++i) {
-        totalTime += timeOut[i * 2 + 1] - timeOut[i * 2];
-    }
-    return totalTime;
-}
-
-void GetFallbackStatistics(const GPUContext& gpu, GPUBuffers* buffs,
-                           std::vector<uint32_t>* stats) {
-    CopyAndReadbackSync(gpu, &buffs->misc, &buffs->readback, stats, 1, 4);
+                            0ULL, queryEntriesToResolve * sizeof(uint64_t));
 }
 
 void InitializeUniforms(const GPUContext& gpu, GPUBuffers* buffs, uint32_t size,
@@ -625,66 +653,63 @@ void InitializeUniforms(const GPUContext& gpu, GPUBuffers* buffs, uint32_t size,
     QueueSync(gpu);
 }
 
-uint32_t RTS(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
-    const uint32_t passCount = 3;
+void RTS(const TestArgs& args, wgpu::CommandEncoder* comEncoder,
+         uint32_t baseQueryIndex) {
     if (args.shouldTime) {
+        // Each pass gets its own offset from the base for this specific RTS
+        // run.
         SetComputePassTimed(args.shaders.reduce, comEncoder, args.gpu.querySet,
-                            args.workTiles, 0);
+                            args.workTiles, baseQueryIndex + 0);
         SetComputePassTimed(args.shaders.spineScan, comEncoder,
-                            args.gpu.querySet, 1, 1);
+                            args.gpu.querySet, 1, baseQueryIndex + 1);
         SetComputePassTimed(args.shaders.downsweep, comEncoder,
-                            args.gpu.querySet, args.workTiles, 2);
+                            args.gpu.querySet, args.workTiles,
+                            baseQueryIndex + 2);
     } else {
         SetComputePass(args.shaders.reduce, comEncoder, args.workTiles);
         SetComputePass(args.shaders.spineScan, comEncoder, 1);
         SetComputePass(args.shaders.downsweep, comEncoder, args.workTiles);
     }
-    return passCount;
 }
 
-uint32_t CSDL(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
-    const uint32_t passCount = 1;
+void CSDL(const TestArgs& args, wgpu::CommandEncoder* comEncoder,
+          uint32_t baseQueryIndex) {
     if (args.shouldTime) {
         SetComputePassTimed(args.shaders.csdl, comEncoder, args.gpu.querySet,
-                            args.workTiles, 0);
+                            args.workTiles, baseQueryIndex);
     } else {
         SetComputePass(args.shaders.csdl, comEncoder, args.workTiles);
     }
-    return passCount;
 }
 
-uint32_t CSDLDF(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
-    const uint32_t passCount = 1;
+void CSDLDF(const TestArgs& args, wgpu::CommandEncoder* comEncoder,
+            uint32_t baseQueryIndex) {
     if (args.shouldTime) {
         SetComputePassTimed(args.shaders.csdldf, comEncoder, args.gpu.querySet,
-                            args.workTiles, 0);
+                            args.workTiles, baseQueryIndex);
     } else {
         SetComputePass(args.shaders.csdldf, comEncoder, args.workTiles);
     }
-    return passCount;
 }
 
-uint32_t CSDLDFSimulate(const TestArgs& args,
-                        wgpu::CommandEncoder* comEncoder) {
-    const uint32_t passCount = 1;
+void CSDLDFSimulate(const TestArgs& args, wgpu::CommandEncoder* comEncoder,
+                    uint32_t baseQueryIndex) {
     if (args.shouldTime) {
         SetComputePassTimed(args.shaders.csdldfSimulate, comEncoder,
-                            args.gpu.querySet, args.workTiles, 0);
+                            args.gpu.querySet, args.workTiles, baseQueryIndex);
     } else {
         SetComputePass(args.shaders.csdldfSimulate, comEncoder, args.workTiles);
     }
-    return passCount;
 }
 
-uint32_t Memcpy(const TestArgs& args, wgpu::CommandEncoder* comEncoder) {
-    const uint32_t passCount = 1;
+void Memcpy(const TestArgs& args, wgpu::CommandEncoder* comEncoder,
+            uint32_t baseQueryIndex) {
     if (args.shouldTime) {
         SetComputePassTimed(args.shaders.memcpy, comEncoder, args.gpu.querySet,
-                            args.workTiles, 0);
+                            args.workTiles, baseQueryIndex);
     } else {
         SetComputePass(args.shaders.memcpy, comEncoder, args.workTiles);
     }
-    return passCount;
 }
 
 uint32_t GetOccupancySync(const TestArgs& args) {
@@ -692,7 +717,8 @@ uint32_t GetOccupancySync(const TestArgs& args) {
     comEncDesc.label = "Command Encoder";
     wgpu::CommandEncoder comEncoder =
         args.gpu.device.CreateCommandEncoder(&comEncDesc);
-    SetComputePass(args.shaders.init, &comEncoder, 256);
+    SetComputePass(args.shaders.initBatch, &comEncoder, 256);
+    SetComputePass(args.shaders.initPass, &comEncoder, 256);
     SetComputePass(args.shaders.csdldfOcc, &comEncoder, args.workTiles);
     wgpu::CommandBuffer comBuffer = comEncoder.Finish();
     args.gpu.queue.Submit(1, &comBuffer);
@@ -734,236 +760,309 @@ void RecordToCSV(const TestArgs& args, const DataStruct& data,
     file.close();
 }
 
+void RunWarmup(const TestArgs& args) {
+    if (args.warmupRuns == 0) {
+        return;
+    }
+
+    wgpu::CommandEncoderDescriptor comEncDesc = {};
+    comEncDesc.label = "Warmup Command Encoder";
+    wgpu::CommandEncoder comEncoder =
+        args.gpu.device.CreateCommandEncoder(&comEncDesc);
+
+    for (uint32_t i = 0; i < args.warmupRuns; ++i) {
+        SetComputePass(args.shaders.initPass, &comEncoder, 256);
+        SetComputePass(args.shaders.csdldf, &comEncoder, args.workTiles);
+    }
+
+    wgpu::CommandBuffer comBuffer = comEncoder.Finish();
+    args.gpu.queue.Submit(1, &comBuffer);
+    QueueSync(args.gpu);
+}
+
+/**
+ * @brief Processes the results from a completed batch, updating statistics
+ * and, if recording, the detailed DataStruct.
+ */
+void ProcessBatchResults(const TestArgs& args,
+                         const std::vector<uint64_t>& batchTimestamps,
+                         const std::vector<uint32_t>& batchShaderStats,
+                         uint32_t runsThisGPUBatch, uint32_t runsExecutedCount,
+                         uint32_t kernelLaunches, TestStatistics& stats,
+                         DataStruct& data) {
+    for (uint32_t k = 0; k < runsThisGPUBatch; ++k) {
+        uint64_t totalRuntimeForThisRun = 0;
+        for (uint32_t launch = 0; launch < kernelLaunches; ++launch) {
+            uint32_t baseIndex = (k * kernelLaunches + launch) * 2;
+            if (baseIndex + 1 < batchTimestamps.size()) {
+                totalRuntimeForThisRun +=
+                    batchTimestamps[baseIndex + 1] - batchTimestamps[baseIndex];
+            }
+        }
+
+        stats.totalTime += totalRuntimeForThisRun;
+        stats.maxTime = std::max(totalRuntimeForThisRun, stats.maxTime);
+        stats.minTime = std::min(totalRuntimeForThisRun, stats.minTime);
+        stats.timeMap[totalRuntimeForThisRun]++;
+
+        if (args.shouldGetStats) {
+            uint32_t statsBaseIndex = k * args.miscStride;
+            uint32_t currentSpins = batchShaderStats[statsBaseIndex];
+            uint32_t currentFallbacks = batchShaderStats[statsBaseIndex + 1];
+            uint32_t currentInsertions = batchShaderStats[statsBaseIndex + 2];
+            uint32_t currentLookback = batchShaderStats[statsBaseIndex + 3];
+
+            if (args.shouldRecord) {
+                uint32_t runId = runsExecutedCount + k;
+                data.time[runId] = static_cast<double>(totalRuntimeForThisRun);
+                data.totalSpins[runId] = currentSpins;
+                data.fallbacksInitiated[runId] = currentFallbacks;
+                data.successfulInsertions[runId] = currentInsertions;
+                data.lookbackLength[runId] = currentLookback;
+            } else {
+                stats.totalSpins += currentSpins;
+                stats.totalFallbacksInitiated += currentFallbacks;
+                stats.totalSuccessfulInsertions += currentInsertions;
+                stats.totalLookbackLength += currentLookback;
+            }
+        } else if (args.shouldRecord) {
+            uint32_t runId = runsExecutedCount + k;
+            data.time[runId] = static_cast<double>(totalRuntimeForThisRun);
+        }
+    }
+}
+
+void PrintSummary(const std::string& testLabel, const TestStatistics& stats,
+                  const TestArgs& args, uint32_t maxRunsInGPUBatch) {
+    printf("\n--- Timing Summary for: %s ---\n", testLabel.c_str());
+    if (args.totalRuns == 0) {
+        printf("No timed tests were run to analyze.\n");
+        printf("---------------------------------------------------\n");
+        return;
+    }
+
+    printf("Statistics for %u timed test run(s) in batches of %u:\n",
+           args.totalRuns, maxRunsInGPUBatch);
+
+    double totalTimeAllSec = static_cast<double>(stats.totalTime) / 1e9;
+    printf("  Total time: %.4f s\n", totalTimeAllSec);
+
+    double avgTimeRunNS =
+        (stats.totalTime > 0 && args.totalRuns > 0)
+            ? (static_cast<double>(stats.totalTime) / args.totalRuns)
+            : 0.0;
+    printf("  Average time per run: %.0f ns\n", avgTimeRunNS);
+
+    if (stats.minTime != ~0ULL) {
+        printf("  Min time per run: %llu ns\n", stats.minTime);
+    } else {
+        printf("  Min time per run: N/A (no tests run or all had issues)\n");
+    }
+    printf("  Max time per run: %llu ns\n", stats.maxTime);
+
+    std::multimap<unsigned int, uint64_t> reverseTimeMap;
+    for (const auto& pair : stats.timeMap) {
+        reverseTimeMap.insert({pair.second, pair.first});
+    }
+
+    int topNToPrint = std::min(5, (int)reverseTimeMap.size());
+    printf("  Top %d runtimes (runtime ns => number of runs):\n", topNToPrint);
+    if (reverseTimeMap.empty()) {
+        printf("    { No distinct runtimes recorded }\n");
+    } else {
+        printf("    { ");
+        int numPrinted = 0;
+        for (auto it = reverseTimeMap.rbegin();
+             it != reverseTimeMap.rend() && numPrinted < topNToPrint; ++it) {
+            if (numPrinted > 0) {
+                printf(", ");
+            }
+            printf("%llu => %u", it->second, it->first);
+            numPrinted++;
+        }
+        printf(" }\n");
+    }
+
+    if (totalTimeAllSec > 0) {
+        double throughputElePerSec =
+            (static_cast<double>(args.size) * args.totalRuns) / totalTimeAllSec;
+        printf("  Estimated speed (on %u elements/run): %.2e ele/s\n",
+               args.size, throughputElePerSec);
+    } else {
+        printf("  Estimated speed: N/A\n");
+    }
+
+    if (args.shouldGetStats && !args.shouldRecord) {
+        printf("\n--- Shader Statistics Summary ---\n");
+        double totalWorkgroups =
+            static_cast<double>(args.totalRuns) * args.workTiles;
+        printf("  Avg spins per workgroup per run: %.2f\n",
+               static_cast<double>(stats.totalSpins) / totalWorkgroups);
+        printf(
+            "  Avg lookback length per workgroup per run: %.2f\n",
+            static_cast<double>(stats.totalLookbackLength) / totalWorkgroups);
+        printf("  Avg fallbacks initiated per run: %.2f\n",
+               static_cast<double>(stats.totalFallbacksInitiated) /
+                   static_cast<double>(args.totalRuns));
+        printf("  Avg successful fallback insertions per run: %.2f\n",
+               static_cast<double>(stats.totalSuccessfulInsertions) /
+                   static_cast<double>(args.totalRuns));
+    }
+    printf("---------------------------------------------------\n");
+}
+
 void Run(std::string testLabel, const TestArgs& args,
-         uint32_t (*MainPass)(const TestArgs&, wgpu::CommandEncoder*), DataStruct& data) {
-    uint32_t testsPassed = 0;
-    uint64_t totalTime = 0ULL;
-    double totalSpins = 0;
-    uint32_t lookbackLength = 0;
-    uint32_t fallbacksInitiated = 0;
-    uint32_t successfulInsertions = 0;
-    for (uint32_t i = 0; i <= args.batchSize; ++i) {
+         void (*Pass)(const TestArgs&, wgpu::CommandEncoder*, uint32_t),
+         uint32_t kernelLaunches) {
+    if (args.totalRuns == 0) {
+        printf("%s: No actual tests to run (totalRuns is 0).\n",
+               testLabel.c_str());
+        return;
+    }
+
+    TestStatistics stats;
+    DataStruct data(args);
+
+    const uint32_t maxRunsInGPUBatch =
+        std::min(args.maxQueryEntries / (kernelLaunches * 2), args.batchSize);
+    uint32_t runsExecutedCount = 0;
+
+    while (runsExecutedCount < args.totalRuns) {
+        uint32_t runsThisGPUBatch =
+            std::min(args.totalRuns - runsExecutedCount, maxRunsInGPUBatch);
+        uint32_t queriesThisGPUBatch = runsThisGPUBatch * kernelLaunches * 2;
+
         wgpu::CommandEncoderDescriptor comEncDesc = {};
-        comEncDesc.label = "Command Encoder";
         wgpu::CommandEncoder comEncoder =
             args.gpu.device.CreateCommandEncoder(&comEncDesc);
-        SetComputePass(args.shaders.init, &comEncoder, 256);
-        uint32_t passCount = MainPass(args, &comEncoder);
-        if (args.shouldTime) {
-            ResolveTimestampQuery(&args.buffs, args.gpu.querySet, &comEncoder,
-                                  passCount);
+
+        SetComputePass(args.shaders.initBatch, &comEncoder, 256);
+        for (uint32_t j = 0; j < runsThisGPUBatch; ++j) {
+            SetComputePass(args.shaders.initPass, &comEncoder, 256);
+            (*Pass)(args, &comEncoder, j* kernelLaunches);
         }
+        ResolveTimestampQuerys(&args.buffs, args.gpu.querySet, &comEncoder,
+                               queriesThisGPUBatch);
+
         wgpu::CommandBuffer comBuffer = comEncoder.Finish();
         args.gpu.queue.Submit(1, &comBuffer);
         QueueSync(args.gpu);
 
-        // The first test is always discarded to prep caches and TLB
-        if (i != 0) {
-            if (args.shouldTime) {
-                const uint64_t t = GetTime(args.gpu, &args.buffs, passCount);
-                totalTime += t;
-                if (args.shouldRecord) {
-                    data.time[i - 1] = static_cast<double>(t);
-                }
-            }
+        std::vector<uint64_t> batchTimestamps(queriesThisGPUBatch);
+        ReadbackSync(args.gpu, &args.buffs.readbackTimestamp, &batchTimestamps,
+                     queriesThisGPUBatch * sizeof(uint64_t));
 
-            if (args.shouldGetStats) {
-                std::vector<uint32_t> stats(4, 0);
-                GetFallbackStatistics(args.gpu, &args.buffs, &stats);
-                totalSpins += stats[0];
-                fallbacksInitiated += stats[1];
-                successfulInsertions += stats[2];
-                lookbackLength += stats[3];
-                if (args.shouldRecord) {
-                    data.totalSpins[i - 1] =
-                        static_cast<double>(stats[0]) / args.workTiles;
-                    data.fallbacksInitiated[i - 1] = stats[1];
-                    data.successfulInsertions[i - 1] = stats[2];
-                    data.lookbackLength[i - 1] =
-                        static_cast<double>(stats[3]) / args.workTiles;
-                }
-            }
-
-            if (args.shouldValidate) {
-                testsPassed +=
-                    Validate(args.gpu, &args.buffs, args.shaders.validate);
-            }
+        std::vector<uint32_t> batchShaderStats;
+        if (args.shouldGetStats) {
+            batchShaderStats.resize(runsThisGPUBatch * args.miscStride);
+            CopyAndReadbackSync(args.gpu, &args.buffs.misc,
+                                &args.buffs.readback, &batchShaderStats,
+                                args.miscStride, batchShaderStats.size());
         }
-    }
-    std::cout << std::endl;
 
-    std::cout << testLabel << " Tests Complete at size: " << args.size << "\n";
+        ProcessBatchResults(args, batchTimestamps, batchShaderStats,
+                            runsThisGPUBatch, runsExecutedCount, kernelLaunches,
+                            stats, data);
 
-    if (args.shouldReadback) {
-        ReadbackAndPrintSync(args.gpu, &args.buffs, args.readbackSize);
-    }
-
-    if (args.shouldGetStats) {
-        double avgTotalSpins =
-            static_cast<double>(totalSpins) / args.batchSize / args.workTiles;
-        double avgLookbackLength = static_cast<double>(lookbackLength) /
-                                   args.batchSize / args.workTiles;
-        double avgFallbacksAttempted =
-            static_cast<double>(fallbacksInitiated) / args.batchSize;
-        double avgSuccessfulInsertions =
-            static_cast<double>(successfulInsertions) / args.batchSize;
-        std::cout << "Thread Blocks Launched: " << args.workTiles << std::endl;
-        std::cout << "Average Total Spins Per Workgroup: " << avgTotalSpins
-                  << std::endl;
-        std::cout << "Average Lookback Length Per Workgroup: "
-                  << avgLookbackLength << std::endl;
-        std::cout << "Average Total Fallbacks Initiated: "
-                  << avgFallbacksAttempted << std::endl;
-        std::cout << "Average Total Successful Insertions: "
-                  << avgSuccessfulInsertions << std::endl;
+        runsExecutedCount += runsThisGPUBatch;
     }
 
-    if (args.shouldValidate) {
-        std::cout << testsPassed << "/" << args.batchSize;
-        if (testsPassed == args.batchSize) {
-            std::cout << " ALL TESTS PASSED" << std::endl;
-        } else {
-            std::cout << " TEST FAILED" << std::endl;
-        }
+    if (args.shouldValidate &&
+        !Validate(args.gpu, &args.buffs, args.shaders.validate)) {
+        printf("Validation Failed, timing data is suspect, ending early.\n");
+        return;
     }
 
-    if (args.shouldTime) {
-        double dTime = static_cast<double>(totalTime);
-        dTime /= 1e9;
-        std::cout << "Total time elapsed " << dTime << std::endl;
-        double speed =
-            ((uint64_t)args.size * (uint64_t)(args.batchSize)) / dTime;
-        printf("Estimated speed %e ele/s\n", speed);
+    PrintSummary(testLabel, stats, args, maxRunsInGPUBatch);
+
+    if (args.shouldRecord) {
+        RecordToCSV(args, data, testLabel);
     }
 }
-
-enum TestType {
-    Csdl,
-    Csdldf,
-    Full,
-    SizeCsdldf,
-    SizeMemcpy,
-};
 
 void TestMemcpy(std::string deviceName, const TestArgs& args) {
     TestArgs memcpyArgs = args;
     memcpyArgs.shouldValidate = false;
-    DataStruct data(memcpyArgs);
-    Run(deviceName + "Memcpy", memcpyArgs, Memcpy, data);
-    if(memcpyArgs.shouldRecord) {
-        RecordToCSV(memcpyArgs, data, deviceName + "Memcpy");
-    }
+    Run(deviceName + "Memcpy", memcpyArgs, Memcpy, 1);
+}
+
+void TestRTS(std::string deviceName, const TestArgs& args) {
+    Run(deviceName + "RTS", args, RTS, 3);
 }
 
 void TestCSDL(std::string deviceName, const TestArgs& args) {
-    DataStruct data(args);
-    Run(deviceName + "CSDL", args, CSDL, data);
-    if (args.shouldRecord) {
-        RecordToCSV(args, data, deviceName + "CSDL");
-    }
+    Run(deviceName + "CSDL", args, CSDL, 1);
 }
 
 void TestCSDLDF(std::string deviceName, const TestArgs& args) {
     DataStruct data(args);
+    RunWarmup(args);
     GetOccupancySync(args);
-    Run(deviceName + "CSDLDF", args, CSDLDF, data);
-    if (args.shouldRecord) {
-        RecordToCSV(args, data, deviceName + "CSDLDF");
-    }
+    Run(deviceName + "CSDLDF", args, CSDLDF, 1);
 }
 
-void TestFull(std::string deviceName, uint32_t MAX_SIMULATE, const TestArgs& args) {
-    std::vector<DataStruct> data(MAX_SIMULATE + 3, DataStruct(args));
-
-    DataStruct& rtsData = data[0];
-    DataStruct& csdlDFData = data[1];
-    DataStruct& csdlDFStatsData = data[2];
-
-    Run(deviceName + "RTS", args, RTS, rtsData);
+void TestFull(std::string deviceName, uint32_t MAX_SIMULATE,
+              const TestArgs& args) {
+    Run(deviceName + "RTS", args, RTS, 3);
     GetOccupancySync(args);
-
-    Run(deviceName + "CSDLDF", args, CSDLDF, csdlDFData);
-
+    Run(deviceName + "CSDLDF", args, CSDLDF, 1);
     TestArgs simArgs = args;
     simArgs.shouldGetStats = true;
-    InitializeUniforms(simArgs.gpu, &simArgs.buffs, simArgs.size, simArgs.workTiles, 0xffffffff);
-    Run(deviceName + "CSDLDF_Stats", args, CSDLDFSimulate, csdlDFStatsData);
-
+    InitializeUniforms(simArgs.gpu, &simArgs.buffs, simArgs.size,
+                       simArgs.workTiles, 0xffffffff);
+    Run(deviceName + "CSDLDF_Stats", simArgs, CSDLDFSimulate, 1);
     for (uint32_t i = 0; i <= MAX_SIMULATE; ++i) {
         uint32_t mask = (1 << i) - 1;
-        InitializeUniforms(simArgs.gpu, &simArgs.buffs, simArgs.size, simArgs.workTiles, mask);
-        Run(deviceName + "CSDLDF_" + std::to_string(1 << i), args, CSDLDFSimulate, data[3 + i]);
-    }
-
-    if (args.shouldRecord) {
-        RecordToCSV(args, rtsData, deviceName + "RTS");
-        RecordToCSV(args, csdlDFData, deviceName + "CSDLDF");
-        RecordToCSV(args, csdlDFStatsData, deviceName + "CSDLDF_Stats");
-
-        for (uint32_t i = 0; i <= MAX_SIMULATE; ++i) {
-            RecordToCSV(simArgs, data[3 + i], deviceName + "CSDLDF_" + std::to_string(1 << i));
-        }
+        InitializeUniforms(simArgs.gpu, &simArgs.buffs, simArgs.size,
+                           simArgs.workTiles, mask);
+        Run(deviceName + "CSDLDF_" + std::to_string(1 << i), simArgs,
+            CSDLDFSimulate, 1);
     }
 }
 
-void TestSize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& args) {
+void TestSize(std::string deviceName, uint32_t PART_SIZE,
+              const TestArgs& args) {
     const uint32_t minPow = 10;
     const uint32_t maxPow = 25;
-    const uint32_t numSizeTests = (maxPow - minPow + 1);
-    std::vector<DataStruct> dataRecords(numSizeTests, DataStruct(args));
 
     for (uint32_t i = minPow; i <= maxPow; ++i) {
         uint32_t currentSize = 1u << i;
         uint32_t currentWorkTiles = (currentSize + PART_SIZE - 1) / PART_SIZE;
-
         TestArgs localArgs = args;
         localArgs.size = currentSize;
         localArgs.workTiles = currentWorkTiles;
-        InitializeUniforms(localArgs.gpu, &localArgs.buffs, currentSize, currentWorkTiles, 0);
-
-        // Run CSDLDF test
-        Run(deviceName + "CSDLDF_Size_" + std::to_string(currentSize), localArgs, CSDLDF, dataRecords[i - minPow]);
-    }
-
-    if (args.shouldRecord) {
-        for (uint32_t i = minPow; i <= maxPow; ++i) {
-            uint32_t currentSize = 1u << i;
-            RecordToCSV(args, dataRecords[i - minPow], deviceName + "CSDLDF_Size_" + std::to_string(currentSize));
-        }
+        InitializeUniforms(localArgs.gpu, &localArgs.buffs, currentSize,
+                           currentWorkTiles, 0);
+        std::string testLabel =
+            deviceName + "CSDLDF_Size_" + std::to_string(currentSize);
+        Run(testLabel, localArgs, CSDLDF, 1);
     }
 }
 
-void TestMemcpySize(std::string deviceName, uint32_t PART_SIZE, const TestArgs& args) {
+void TestMemcpySize(std::string deviceName, uint32_t PART_SIZE,
+                    const TestArgs& args) {
     const uint32_t minPow = 10;
     const uint32_t maxPow = 25;
-    const uint32_t numSizeTests = (maxPow - minPow + 1);
-    std::vector<DataStruct> memcpyDataRecords(numSizeTests, DataStruct(args));
 
     for (uint32_t i = minPow; i <= maxPow; ++i) {
         uint32_t currentSize = 1u << i;
         uint32_t currentWorkTiles = (currentSize + PART_SIZE - 1) / PART_SIZE;
-
         TestArgs memcpyArgs = args;
         memcpyArgs.size = currentSize;
-        memcpyArgs.shouldValidate = false;
         memcpyArgs.workTiles = currentWorkTiles;
-        InitializeUniforms(memcpyArgs.gpu, &memcpyArgs.buffs, currentSize, currentWorkTiles, 0);
-
-        // Run Memcpy test
-        Run(deviceName + "Memcpy_Size_" + std::to_string(currentSize), memcpyArgs, Memcpy, memcpyDataRecords[i - minPow]);
-    }
-
-    if (args.shouldRecord) {
-        for (uint32_t i = minPow; i <= maxPow; ++i) {
-            uint32_t currentSize = 1u << i;
-            RecordToCSV(args, memcpyDataRecords[i - minPow], deviceName + "Memcpy_Size_" + std::to_string(currentSize));
-        }
+        memcpyArgs.shouldValidate =
+            false;  // Memcpy test doesn't need validation
+        InitializeUniforms(memcpyArgs.gpu, &memcpyArgs.buffs, currentSize,
+                           currentWorkTiles, 0);
+        std::string testLabel =
+            deviceName + "Memcpy_Size_" + std::to_string(currentSize);
+        Run(testLabel, memcpyArgs, Memcpy, 1);
     }
 }
 
-
 auto printUsage = []() {
-    std::cerr << "Usage: <TestType: \"csdl\"|\"csdldf\"|\"full\"|\"sizecsdldf\"|\"sizememcpy\"> "
+    std::cerr << "Usage: <TestType: "
+                 "\"csdl\"|\"csdldf\"|\"full\"|\"sizecsdldf\"|\"sizememcpy\"> "
                  "[\"record\"] [deviceName]"
               << std::endl;
 };
@@ -976,7 +1075,9 @@ int main(int argc, char* argv[]) {
 
     TestType testType;
     std::string testTypeStr = argv[1];
-    if (testTypeStr == "csdl") {
+    if (testTypeStr == "rts") {
+        testType = Rts;
+    } else if (testTypeStr == "csdl") {
         testType = Csdl;
     } else if (testTypeStr == "csdldf") {
         testType = Csdldf;
@@ -1005,18 +1106,18 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    constexpr uint32_t MISC_SIZE =
-        5;  // Max scratch memory we use to track various stats
+    constexpr uint32_t MISC_STRIDE =
+        4;  // Scratch memory we use to track various stats
     constexpr uint32_t PART_SIZE =
         4096;  // MUST match the partition size specified in shaders.
-    constexpr uint32_t MAX_TIMESTAMPS =
-        3;  // Max number of passes to track with our query set
+    constexpr uint32_t MAX_QUERY_ENTRIES =
+        4096;  // The maximum number of query entries for a single command
+               // encoder in Dawn.
     constexpr uint32_t MAX_READBACK_SIZE =
-        8192;                             // Max size of our readback buffer
+        16384;                            // Max size of our readback buffer
     constexpr uint32_t MAX_SIMULATE = 9;  // Max power to simulate blocking
 
-    const uint32_t size = 1 << 25;   // Size of the scan operation
-    const uint32_t batchSize = 2000;  // How many tests to run
+    const uint32_t size = 1 << 25;  // Size of the scan operation
     const uint32_t
         workTiles =  // Work Tiles/Thread Blocks to launch based on input
         (size + PART_SIZE - 1) / PART_SIZE;
@@ -1028,21 +1129,35 @@ int main(int argc, char* argv[]) {
     bool shouldReadback =
         false;               // Use readback to verify check results as needed
     bool shouldTime = true;  // Time results?
-
     GPUContext gpu;
     GPUBuffers buffs;
     Shaders shaders;
-    GetGPUContext(&gpu, MAX_TIMESTAMPS);
-    GetGPUBuffers(gpu.device, &buffs, workTiles, MAX_TIMESTAMPS, size,
-                  MISC_SIZE, MAX_READBACK_SIZE);
+    GetGPUContext(&gpu, MAX_QUERY_ENTRIES);
+    GetGPUBuffers(gpu.device, &buffs, workTiles, MAX_QUERY_ENTRIES, size,
+                  MISC_STRIDE, MAX_READBACK_SIZE);
     GetAllShaders(gpu, buffs, &shaders);
-    InitializeUniforms(gpu, &buffs, size, workTiles, 0);
-    TestArgs args = {gpu,          buffs,          shaders,
-                     size,         batchSize,      workTiles,
-                     readbackSize, shouldValidate, shouldReadback,
-                     shouldTime,   false,          shouldRecord};
+    TestArgs args = {gpu,
+                     buffs,
+                     shaders,
+                     size,
+                     workTiles,
+                     readbackSize,
+                     /*warmupSize*/ 1,
+                     /*totalRuns*/ 1000,
+                     /*batchSize*/ 2048,
+                     MAX_QUERY_ENTRIES,
+                     MISC_STRIDE,
+                     shouldValidate,
+                     shouldReadback,
+                     shouldTime,
+                     false,
+                     shouldRecord};
 
+    InitializeUniforms(gpu, &buffs, size, workTiles, 0);
     switch (testType) {
+        case Rts:
+            TestRTS(deviceName, args);
+            break;
         case Csdl:
             TestCSDL(deviceName, args);
             break;
