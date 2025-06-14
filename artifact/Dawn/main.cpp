@@ -980,21 +980,21 @@ struct CommandLineArgs {
     bool shouldRecord;
     std::string deviceName;
 };
-
 void ParseArguments(int argc, char* argv[], CommandLineArgs& args) {
     auto printUsage = []() {
         std::cerr
-            << "Usage: <TestType> [options] [deviceName]\n\n"
+            << "Usage: <TestType> [options]\n\n" // Removed [deviceName] from here
             << "  <TestType>: rts | csdl | csdldf | full | sizecsdldf | sizememcpy\n\n"
             << "Options:\n"
+            << "  --label <name>       Optional name to prefix output files (e.g., 'MyCoolGPU').\n"
             << "  --record             Enable recording to CSV.\n"
             << "  --runs <N>           Set the number of timed runs (default: 4192).\n"
             << "  --warmup <N>         Set the number of warmup runs (default: 1000).\n"
             << "  --batch <N>          Set the max batch size per submission (default: 2048).\n"
             << "  --size <N>           Set the problem size as a power of 2 (i.e., 1 << N) "
                "(default: 25).\n"
-            << "  -h, --help           Show this help message.\n\n"
-            << "  [deviceName]         Optional name to prefix output files (e.g., 'MyCoolGPU').\n";
+            << "  -h, --help           Show this help message.\n";
+            // Removed the separate [deviceName] description
     };
 
     if (argc < 2) {
@@ -1022,41 +1022,48 @@ void ParseArguments(int argc, char* argv[], CommandLineArgs& args) {
         throw std::invalid_argument("Invalid TestType: " + testTypeStr);
     }
 
-    int flags_end_index = argc;
-    if (argc > 2 && argv[argc - 1][0] != '-') {
-        args.deviceName = std::string(argv[argc - 1]) + "_";
-        flags_end_index = argc - 1;
+    std::vector<std::string> arguments;
+    for (int i = 2; i < argc; ++i) {
+        arguments.push_back(argv[i]);
     }
 
-    for (int i = 2; i < flags_end_index; ++i) {
-        std::string arg = argv[i];
+    for (size_t i = 0; i < arguments.size(); ++i) {
+        std::string arg = arguments[i];
         if (arg == "--record") {
             args.shouldRecord = true;
         } else if (arg == "--runs") {
-            if (i + 1 < flags_end_index)
-                args.totalRuns = std::stoul(argv[++i]);
-            else {
+            if (i + 1 < arguments.size()) {
+                args.totalRuns = std::stoul(arguments[++i]);
+            } else {
                 throw std::invalid_argument("--runs requires a value.");
             }
         } else if (arg == "--warmup") {
-            if (i + 1 < flags_end_index)
-                args.warmupRuns = std::stoul(argv[++i]);
-            else {
+            if (i + 1 < arguments.size()) {
+                args.warmupRuns = std::stoul(arguments[++i]);
+            } else {
                 throw std::invalid_argument("--warmup requires a value.");
             }
         } else if (arg == "--batch") {
-            if (i + 1 < flags_end_index)
-                args.batchSize = std::stoul(argv[++i]);
-            else {
+            if (i + 1 < arguments.size()) {
+                args.batchSize = std::stoul(arguments[++i]);
+            } else {
                 throw std::invalid_argument("--batch requires a value.");
             }
         } else if (arg == "--size") {
-            if (i + 1 < flags_end_index)
-                args.sizeExponent = std::stoul(argv[++i]);
-            else {
+            if (i + 1 < arguments.size()) {
+                args.sizeExponent = std::stoul(arguments[++i]);
+            } else {
                 throw std::invalid_argument("--size requires a value.");
             }
-        } else {
+        } else if (arg == "--label") {
+            if (i + 1 < arguments.size()) {
+                args.deviceName = arguments[++i] + "_";
+            } else {
+                throw std::invalid_argument("--label requires a value.");
+            }
+        }
+        else {
+            // Any argument that is not a recognized flag is now an error.
             throw std::invalid_argument("Unknown option: " + arg);
         }
     }
