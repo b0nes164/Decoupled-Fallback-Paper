@@ -328,7 +328,7 @@ fn main(
     }
 
     if(threadid.x == 0u){
-        let batch_offset = (atomicLoad(&scan_bump[1u]) + 1u) * MISC_STRIDE;
+        let batch_offset = atomicLoad(&scan_bump[1u]) * MISC_STRIDE;
         atomicAdd(&stats[batch_offset], total_spins);
         atomicAdd(&stats[batch_offset + 1u], fallbacks_initiated);
         atomicAdd(&stats[batch_offset + 2u], successful_fallback_insertions);

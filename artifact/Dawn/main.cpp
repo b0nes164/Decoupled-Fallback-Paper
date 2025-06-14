@@ -82,16 +82,16 @@ struct TestStatistics {
     uint64_t maxTime = 0ULL;
     uint64_t minTime = ~0ULL;
     std::map<uint64_t, unsigned int> timeMap;
-    uint64_t totalSpins = 0;
-    uint64_t totalLookbackLength = 0;
+    double totalSpins = 0.0;
+    double totalLookbackLength = 0.0;
     uint64_t totalFallbacksInitiated = 0;
     uint64_t totalSuccessfulInsertions = 0;
 };
 
 struct DataStruct {
     std::vector<double> time;
-    std::vector<uint32_t> totalSpins;
-    std::vector<uint32_t> lookbackLength;
+    std::vector<double> totalSpins;
+    std::vector<double> lookbackLength;
     std::vector<uint32_t> fallbacksInitiated;
     std::vector<uint32_t> successfulInsertions;
 
@@ -678,8 +678,7 @@ void RecordToCSV(const TestArgs& args, const DataStruct& data, const std::string
 
     if (args.shouldGetStats) {
         // Write full headers
-        file << "time,totalSpins,lookbackLength,fallbacksInitiated,"
-                "successfulInsertions\n";
+        file << "time,totalSpins,lookbackLength,fallbacksInitiated,successfulInsertions\n";
 
         // Write full data
         size_t rows = data.time.size();
@@ -722,10 +721,17 @@ void ProcessBatchResults(const TestArgs& args, const std::vector<uint64_t>& batc
 
         if (args.shouldGetStats) {
             uint32_t statsBaseIndex = k * args.miscStride;
-            uint32_t currentSpins = batchShaderStats[statsBaseIndex];
+            double currentSpins =
+                static_cast<double>(batchShaderStats[statsBaseIndex]) / args.workTiles;
             uint32_t currentFallbacks = batchShaderStats[statsBaseIndex + 1];
             uint32_t currentInsertions = batchShaderStats[statsBaseIndex + 2];
-            uint32_t currentLookback = batchShaderStats[statsBaseIndex + 3];
+            double currentLookback =
+                static_cast<double>(batchShaderStats[statsBaseIndex + 3]) / args.workTiles;;
+
+            stats.totalSpins += currentSpins;
+            stats.totalFallbacksInitiated += currentFallbacks;
+            stats.totalSuccessfulInsertions += currentInsertions;
+            stats.totalLookbackLength += currentLookback;
 
             if (args.shouldRecord) {
                 uint32_t runId = runsExecutedCount + k;
@@ -734,11 +740,6 @@ void ProcessBatchResults(const TestArgs& args, const std::vector<uint64_t>& batc
                 data.fallbacksInitiated[runId] = currentFallbacks;
                 data.successfulInsertions[runId] = currentInsertions;
                 data.lookbackLength[runId] = currentLookback;
-            } else {
-                stats.totalSpins += currentSpins;
-                stats.totalFallbacksInitiated += currentFallbacks;
-                stats.totalSuccessfulInsertions += currentInsertions;
-                stats.totalLookbackLength += currentLookback;
             }
         } else if (args.shouldRecord) {
             uint32_t runId = runsExecutedCount + k;
@@ -807,13 +808,12 @@ void PrintSummary(const std::string& testLabel, const TestStatistics& stats, con
         printf("  Estimated speed: N/A\n");
     }
 
-    if (args.shouldGetStats && !args.shouldRecord) {
+    if (args.shouldGetStats) {
         printf("\n--- Shader Statistics Summary ---\n");
-        double totalWorkgroups = static_cast<double>(args.totalRuns) * args.workTiles;
         printf("  Avg spins per workgroup per run: %.2f\n",
-               static_cast<double>(stats.totalSpins) / totalWorkgroups);
+               static_cast<double>(stats.totalSpins) / args.totalRuns);
         printf("  Avg lookback length per workgroup per run: %.2f\n",
-               static_cast<double>(stats.totalLookbackLength) / totalWorkgroups);
+               static_cast<double>(stats.totalLookbackLength) / args.totalRuns);
         printf("  Avg fallbacks initiated per run: %.2f\n",
                static_cast<double>(stats.totalFallbacksInitiated) /
                    static_cast<double>(args.totalRuns));
@@ -988,8 +988,8 @@ void ParseArguments(int argc, char* argv[], CommandLineArgs& args) {
             << "  <TestType>: rts | csdl | csdldf | full | sizecsdldf | sizememcpy\n\n"
             << "Options:\n"
             << "  --record             Enable recording to CSV.\n"
-            << "  --runs <N>           Set the number of timed runs (default: 1000).\n"
-            << "  --warmup <N>         Set the number of warmup runs (default: 1).\n"
+            << "  --runs <N>           Set the number of timed runs (default: 4192).\n"
+            << "  --warmup <N>         Set the number of warmup runs (default: 1000).\n"
             << "  --batch <N>          Set the max batch size per submission (default: 2048).\n"
             << "  --size <N>           Set the problem size as a power of 2 (i.e., 1 << N) "
                "(default: 25).\n"
