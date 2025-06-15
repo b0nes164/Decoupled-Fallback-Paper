@@ -496,13 +496,17 @@ void SetComputePassTimed(const ComputeShader& cs, wgpu::CommandEncoder* comEncod
 
 void QueueSync(const GPUContext& gpu) {
     std::promise<void> promise;
-    gpu.queue.OnSubmittedWorkDone(wgpu::CallbackMode::AllowProcessEvents,
-                                  [&](wgpu::QueueWorkDoneStatus status) {
-                                      if (status != wgpu::QueueWorkDoneStatus::Success) {
-                                          std::cerr << "uh oh" << std::endl;
-                                      }
-                                      promise.set_value();
-                                  });
+    gpu.queue.OnSubmittedWorkDone(
+        wgpu::CallbackMode::AllowProcessEvents,
+        [&](wgpu::QueueWorkDoneStatus status, wgpu::StringView message) {
+            if (status != wgpu::QueueWorkDoneStatus::Success) {
+                std::cerr << "Queue work done failed! Status: " << static_cast<int>(status)
+                          << ", Message: " << std::string(message.data, message.length)
+                          << std::endl;
+            }
+            promise.set_value();
+        });
+
     std::future<void> future = promise.get_future();
     while (future.wait_for(std::chrono::nanoseconds(100)) == std::future_status::timeout) {
         gpu.instance.ProcessEvents();
