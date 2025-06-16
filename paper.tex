@@ -255,8 +255,8 @@ Thus, by dynamically acquiring IDs through atomics, \emph{Chained Scan} shifts i
 \end{table}
 
 \subsection{Why is Reliance on Forward-Progress Guarantees a Portability Problem?}
-The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing (Figure~\ref{fig:dist}) shows that, at best, running \emph{Chained Scan} without FPG results in performance worse than \emph{Reduce-then-Scan}, and frequently triggers \emph{Timeout Device Recovery}\label{sec:tdr}\footnote{Operating systems handle unresponsive programs differently. On Windows, the Timeout Detection and Recovery (TDR) system resets the GPU after approximately 2 seconds. Other operating systems---such as macOS and Linux---employ their own timeout mechanisms with varying behaviors. For consistency, we adopt Windows’ 2-second limit as a reasonable expectation for maximum execution time.} (TDR), crashing the program.
-\begin{figure}
+The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing (Figure~\ref{fig:dist}) shows that, at best, running \emph{Chained Scan} without FPG results in performance worse than \emph{Reduce-then-Scan}, and frequently triggers \emph{Timeout Device Recovery}\label{sec:tdr}\footnote{Operating systems handle unresponsive programs differently. On Windows, the Timeout Detection and Recovery (TDR) system resets the GPU after approximately 2 seconds. Other operating systems---such as macOS and Linux---employ their own timeout mechanisms with varying behaviors. For consistency, we adopt Windows’s 2-second limit as a reasonable expectation for maximum execution time.} (TDR), crashing the program.
+\begin{figure*}
   \centering
   \begin{subfigure}[b]{0.45\linewidth}
     \includegraphics[width=\linewidth]{graphics/decoupled_lookback.pdf}
@@ -271,7 +271,7 @@ The absence of FPG in key hardware segments poses a critical challenge for devel
   \end{subfigure}
   \caption{Histogram plots, 500 runs of Inclusive Prefix Sum, $\mathbf{2^{20}}$ 32-bit elements, on an FPG-lacking device, Apple M1 Max. Bar heights ($y$ axis) indicate the number of runs that completed in the execution time indicated on the $x$ axis. The TDR threshold is Windows's threshold for resetting the GPU\@; as noted in Section~\ref{sec:tdr}, MacOS handles this differently.}
   \label{fig:dist}
-\end{figure}
+\end{figure*}
 Exacerbating this issue, no major graphics API provides a mechanism to query FPG support. This lack of transparency forces developers to design algorithms without knowing whether critical guarantees are available on the target hardware. In shader environments, where cross-platform portability is essential, this uncertainty compels a fallback to older, less efficient strategies like \emph{Reduce-then-Scan}, sacrificing performance for broader compatibility.
 
 \subsection{Earlier Attempts at Portability}
@@ -445,7 +445,7 @@ Workgroups operate independently; each is responsible for updating its own tile 
 We now detail the \emph{Decoupled Fallback} procedure, presenting the algorithm from the perspective of a single workgroup. The details of tile state encoding and atomic updates are discussed in the following section and may vary depending on the data type, so for simplicity, we describe the operation as being performed by the \emph{first thread} of the workgroup:
 \begin{figure}
   \centering
-  \includegraphics[height=\textheight]{graphics/FlowChart.pdf}
+  \includegraphics[width=\columnwidth]{graphics/FlowChart.pdf}
   \caption{Flow Chart Representation of \emph{Decoupled Fallback}.\label{fig:decoupled_fallback}}
 \end{figure}
 \begin{enumerate}
@@ -524,7 +524,7 @@ The atomic splitting technique generalizes to monoids of arbitrary size.
 \section{Evaluation}
 \subsection{Experimental Setup}
 We configure workgroups with a size $w = 256$ threads, where each thread processes $p = 4$ vectors of size 4, resulting in 16 elements per thread and a total work tile size of $t = 4096$. We find a maximum spin count of 4 effectively balances responsiveness to blocking while minimizing false-positive fallbacks. As the size of the local spine is inversely proportional to the subgroup size, we allocate sufficient shared memory to accommodate the WebGPU standard's minimum subgroup size of 4. Due to our overall thriftiness with shared memory, total usage remains modest at only $\sim$1 KB\@. For all tests, we use an input size of $2^{25}$ and an inclusive prefix sum. Our test hardware, shown in Figure~\ref{tab:hardware}, spans a wide range of FPG and performance capabilities. We empirically find that Google Chrome's native implementation of WebGPU, Dawn, provides the best performance and use it for all testing, except on the Arm-Mali GPU, which requires native Android, necessitating the use of WGPU\@.\footnote{To keep the performance as close to Dawn as possible, we translate our WGSL code with Dawn's Tint transpiler, and provide the raw SPIR-V to WGPU\@.}
-\begin{table}
+\begin{table*}
   \centering
   \begin{tabular}{l l c r r}
     \toprule
@@ -539,7 +539,7 @@ We configure workgroups with a size $w = 256$ threads, where each thread process
     \bottomrule
   \end{tabular}
   \caption{Hardware Specifications of Testing Devices.\label{tab:hardware}}
-\end{table}
+\end{table*}
 
 \subsection{Performance Comparison}
 \subsubsection{Cross-API Performance Versus Contemporary Implementations}
@@ -549,7 +549,7 @@ Cross-API comparisons remain challenging, as our CUDA implementation consistentl
 
 \begin{figure}
   \centering
-  \includegraphics[width=0.6\linewidth]{graphics/cuda_plot.pdf}
+  \includegraphics[width=\linewidth]{graphics/cuda_plot.pdf}
   \caption{Performance versus CUB (NVIDIA 2080 Super).}
 \end{figure}
 
