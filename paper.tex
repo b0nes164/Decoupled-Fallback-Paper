@@ -47,13 +47,12 @@
   \providecommand\BibTeX{{%
     Bib\TeX}}}
 
-\setcopyright{acmlicensed}
-\copyrightyear{2025}
-\acmYear{2025}
-\acmDOI{XXXXXXX.XXXXXXX}
-\acmConference[SPAA '25]{37th ACM Symposium on Parallelism in Algorithms and Architectures}{July 28--August 1,
-  2025}{Portland, OR, USA}
-\acmISBN{978-1-4503-XXXX-X/18/06}
+\acmYear{2025}\copyrightyear{2025}
+\setcopyright{rightsretained}
+\acmConference[SPAA '25]{37th ACM Symposium on Parallelism in Algorithms and Architectures}{July 28--August 1, 2025}{Portland, OR, USA}
+\acmBooktitle{37th ACM Symposium on Parallelism in Algorithms and Architectures (SPAA '25), July 28--August 1, 2025, Portland, OR, USA}
+\acmDOI{10.1145/3694906.3743326}
+\acmISBN{979-8-4007-1258-6/25/07}
 
 \usepackage[ruled,vlined]{algorithm2e}
 \SetKwInput{KwGlobalIn}{Global Mem Input}
@@ -175,7 +174,7 @@ The study of \emph{scan} (\emph{parallel prefix}) networks traces back to the de
 \]
 Due to its significance in circuits and as a fundamental algorithmic primitive, scan has been extensively studied in both electrical engineering and computer science. Harris~\cite{1292373} offers a taxonomy that relates depth, fanout, and wire tracks, while Hinze~\cite{10.1007/978-3-540-27764-4_11} develops an algebraic framework for scans. Snir~\cite{10.1016/0196-67748690003-9} proved that depth $d$ and size $s$ are related by $s + d \ge 2n - 2$, and Fich~\cite{10.1145/800061.808738} proved that among minimum depth scans Ladner-Fischer~\cite{10.1145/322217.322232} networks have optimal size. Blelloch~\cite{Blelloch:1989:SAP} adapted scan to the PRAM model and popularized its use as an algorithmic primitive. Finally, Merrill and Garland~\cite{Merrill2016} provide a review of GPU scan implementations, complementing earlier work by Merrill and Grimshaw~\cite{Merrill2009}.
 
-\begin{figure*}
+\begin{figure*}[!t]
   \centering
   \makebox[\textwidth][c]{
     \begin{subfigure}[c]{0.48\textwidth}
@@ -250,48 +249,6 @@ Introduced by Merrill and Garland, the \emph{Decoupled Lookback} technique refin
 
 Although \emph{Decoupled Lookback} increases global memory access during the propagation phase to $O(o(n/t))$, the serial ordering of work tile processing confines spine memory accesses to a roughly $o$-width sliding window, making them highly likely to be cache-resident. As a result, the additional global memory traffic along the spine introduces negligible overhead. With total global memory movement of $O(2n+o(n/t))= O(2n)$, \emph{Decoupled Lookback} achieves full utilization of device memory bandwidth and delivers SOL performance without the work tile size tuning required by \emph{StreamScan}.
 
-\subsection{Ideal Scan Architecture}
-In terms of performance, an ideal global scan algorithm should minimize global memory movement, fully utilize the device’s memory bandwidth, and avoid costly global barriers. By these criteria alone, the \emph{Chained Scan} architecture emerges as the preferred solution; moreover, its single-kernel design offers compelling portability advantages across diverse hardware. By eliminating global barriers, \emph{Chained Scan} naturally conforms to the GPU’s oversubscription model, allowing occupancy control to be delegated the hardware's workgroup scheduler. In contrast, hierarchical approaches such as \emph{Reduce-then-Scan} require workgroup raking and fixed-occupancy persistent threads to bound the spine’s size, necessitating explicit kernel launches and manual tuning of launch configurations to maintain optimal occupancy.
-
-Hardware-level considerations underscore the limitations of the fixed-launch approach. On GPUs where the global memory data cache is indexed by physical addresses—and therefore requires lookups in \emph{translation lookaside buffers} (TLBs)—fixed launches can lead to performance degradation due to cache thrashing. This issue occurs when task sizes are large enough that each workgroup accesses its own unique page entry, and the device lacks sufficient TLB coverage to support the memory access patterns of all workgroups. Although this behavior typically does not manifest with simple monoids, more complex monoids with \emph{struct-of-array} memory access patterns—or applications like radix sorting, where the scattering phase of each pass results in $radixDigits \cdot o$ unique memory locations—may experience significant performance degradation.
-
-Moreover, the fused nature of \emph{Chained Scan} enables in-situ compaction: algorithms requiring compaction can merge that work directly into the scan kernel, avoiding redundant writes or secondary compaction passes. This fusion benefits applications ranging from data deduplication to compression. However, \emph{Chained Scan} has a critical limitation: its reliance on a forward-progress guarantee. While NVIDIA GPUs provide this guarantee, data collected by Sorensen et al.~\cite{sorensen2021} shows that ARM and Apple GPUs do not. Without forward-progress guarantees, \emph{Chained Scan} is not merely inefficient—it risks indefinite starvation, causing the application to freeze and rendering the kernel unable to terminate, requiring external intervention to recover.
-
-\subsection{Progress Guarantees and Their Impact on \emph{Chained Scan}}
- Prior to Sorensen et al.~\cite{sorensen2018,sorensen2021}, developers largely relied on untested, folklore-like assumptions about GPU progress guarantees. Instead, Sorensen et al.\ systematically proposed and tested three progress models:\footnote{Note, a ``workgroup'' in Sorensen et al.'s definition is not necessarily in-flight and occupant on a multiprocessor.}
-\begin{itemize}
-  \item \textbf{Occupancy-Bound Execution (OBE)}: Workgroups that have made at least one execution step.
-  \item \textbf{Heterogeneous System Architecture~\cite[Section~2.11]{HSASysArch12} (HSA)}: The workgroup with the lowest ID that has not yet terminated.
-  \item \textbf{Linear OBE (LOBE)}: Workgroups that have made at least one step, and any workgroup with a lower ID than a workgroup that has made at least one step.
-\end{itemize}
-Their 2021 findings~\cite{sorensen2021} demonstrated that Apple and ARM GPUs do not support LOBE, contradicting their prior hypothesis~\cite{sorensen2018}.
-
-Sorensen et al.\ classify \emph{Chained Scan} as a \emph{one-way producer-consumer} (PC) HSA algorithm: a workgroup only consumes from lower-ID counterparts, ensuring that execution proceeds in a strictly ordered fashion. HSA guarantees termination, as the lowest ID workgroup is always given forward progress. If subgroups from the lowest ID workgroup are not guaranteed execution, then dependent workgroups may spin indefinitely, waiting on an update that never arrives.
-
-However, the HSA classification relies on the assumption that \emph{Chained Scan} follows scheduler-assigned virtualized IDs rather than dynamically acquired atomic-bumped IDs, as used by both \emph{StreamScan} and \emph{Decoupled Lookback}. Since virtual IDs do not necessarily match atomic IDs, HSA does not guarantee termination---the lowest virtual ID may not be scheduled first, potentially leading to starvation.
-
-LOBE adds an additional condition on top of OBE\@: lower-ID workgroups must be scheduled before higher-ID ones. However, this condition is unnecessary for \emph{Chained Scan} for two reasons: (1) We already guarantee serial ordering of work items through atomic bumping, making OBE sufficient. (2) \emph{Chained Scan} only requires forward progress after a workgroup has atomically acquired its tile index. By definition, a workgroup that has acquired its index must be occupant on a physical processor (i.e., it has made at least one execution step); thus, the OBE guarantee is sufficient for forward progress.
-
-Thus, by dynamically acquiring IDs through atomics, \emph{Chained Scan} shifts its progress model requirement from HSA to OBE. While LOBE encompasses both HSA and OBE, its stricter ordering guarantees are unnecessary for correctness. Ultimately, regardless of a device's specific progress model, any architecture lacking forward-progress guarantees will fail to execute \emph{Chained Scan}. In short:
-
-\begin{table}[h!]
-  \small
-  \centering
-  \begin{tabular}{lcccc}
-    \toprule
-    Algorithm                             & LOBE & OBE & HSA & None \\
-    \midrule
-    \emph{Chained Scan} with Workgroup ID & Yes  & No  & Yes & No   \\
-    \emph{Chained Scan} with Atomic ID    & Yes  & Yes & No  & No   \\
-    Ours                                  & Yes  & Yes & Yes & Yes  \\
-    \bottomrule
-  \end{tabular}
-  \caption{Comparison of \emph{Chained Scan} Variants and Our Implementation Across Progress Models.\label{tab:progress_models}}
-\end{table}
-
-\subsection{Why is Reliance on Forward-Progress Guarantees a Portability Problem?}
-A \emph{forward-progress guarantee} ensures that all occupant subgroups---of possibly different workgroups---are eventually given execution and make progress toward termination, preventing indefinite starvation. In the most comprehensive 
-The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing (Figure~\ref{fig:dist}) shows that, at best, running \emph{Chained Scan} without FPG results in performance worse than \emph{Reduce-then-Scan}, and frequently triggers \emph{Timeout Device Recovery}\label{sec:tdr}\footnote{Operating systems handle unresponsive programs differently. On Windows, the Timeout Detection and Recovery (TDR) system resets the GPU after approximately 2 seconds. Other operating systems---such as macOS and Linux---employ their own timeout mechanisms with varying behaviors. For consistency, we adopt Windows’s 2-second limit as a reasonable expectation for maximum execution time.} (TDR), crashing the program.
 \begin{figure*}
   \centering
   \begin{subfigure}[b]{0.45\linewidth}
@@ -308,19 +265,30 @@ The absence of FPG in key hardware segments poses a critical challenge for devel
   \caption{Histogram plots, 500 runs of Inclusive Prefix Sum, $\mathbf{2^{25}}$ 32-bit elements, on an FPG-lacking device, Apple M1 Max. Bar heights ($y$ axis) indicate the number of runs that completed in the execution time indicated on the $x$ axis. The Reduce-then-Scan threshold is the expected execution time of RTS at the same input size; runs to the left of this threshold indicate a performance uplift and vice versa. The TDR threshold is Windows's threshold for resetting the GPU\@; as noted in Section~\ref{sec:tdr}, MacOS handles this differently.}
   \label{fig:dist}
 \end{figure*}
-Exacerbating this issue, no major graphics API provides a mechanism to query FPG support. This lack of transparency forces developers to design algorithms without knowing whether critical guarantees are available on the target hardware. In shader environments, where cross-platform portability is essential, this uncertainty compels a fallback to older, less efficient strategies like \emph{Reduce-then-Scan}, sacrificing performance for broader compatibility.
+
+\subsection{Ideal Scan Architecture}
+In terms of performance, an ideal global scan algorithm should minimize global memory movement, fully utilize the device’s memory bandwidth, and avoid costly global barriers. By these criteria alone, the \emph{Chained Scan} architecture emerges as the preferred solution; moreover, its single-kernel design offers compelling portability advantages across diverse hardware. By eliminating global barriers, \emph{Chained Scan} naturally conforms to the GPU’s oversubscription model, allowing occupancy control to be delegated the hardware's workgroup scheduler. In contrast, hierarchical approaches such as \emph{Reduce-then-Scan} require workgroup raking and fixed-occupancy persistent threads to bound the spine’s size, necessitating explicit kernel launches and manual tuning of launch configurations to maintain optimal occupancy.
+
+Hardware-level considerations underscore the limitations of the fixed-launch approach. On GPUs where the global memory data cache is indexed by physical addresses—and therefore requires lookups in \emph{translation lookaside buffers} (TLBs)—fixed launches can lead to performance degradation due to cache thrashing. This issue occurs when task sizes are large enough that each workgroup accesses its own unique page entry, and the device lacks sufficient TLB coverage to support the memory access patterns of all workgroups. Although this behavior typically does not manifest with simple monoids, more complex monoids with \emph{struct-of-array} memory access patterns—or applications like radix sorting, where the scattering phase of each pass results in $radixDigits \cdot o$ unique memory locations—may experience significant performance degradation.
+
+Moreover, the fused nature of \emph{Chained Scan} enables in-situ compaction: algorithms requiring compaction can merge that work directly into the scan kernel, avoiding redundant writes or secondary compaction passes. This fusion benefits applications ranging from data deduplication to compression. However, \emph{Chained Scan} has a critical limitation: its reliance on a forward-progress guarantee. While NVIDIA GPUs provide this guarantee, data collected by Sorensen et al.~\cite{sorensen2021} shows that ARM and Apple GPUs do not. Without forward-progress guarantees, \emph{Chained Scan} is not merely inefficient---it risks indefinite starvation, causing the application to freeze and rendering the kernel unable to terminate, requiring external intervention to recover.
+
+\subsection{Why is Reliance on Forward-Progress Guarantees a Portability Problem?}
+\emph{Chained Scans} are \emph{one-way producer-consumer} algorithms; each workgroup consumes reductions only from lower-ID counterparts, thereby enforcing the ordering required to elide barriers. For such algorithms, guaranteeing execution of the lowest-ID workgroup is sufficient to ensure termination. If subgroups from the lowest-ID workgroup are not guaranteed execution, dependent workgroups may spin indefinitely, waiting for updates that never arrive. A \emph{forward-progress guarantee} ensures that all occupant subgroups---potentially from different workgroups---are eventually granted execution, thus preventing indefinite starvation.
+
+The absence of FPG in key hardware segments poses a critical challenge for developers. Our testing (Figure~\ref{fig:dist}) shows that, at best, running \emph{Chained Scan} without FPG results in performance worse than \emph{Reduce-then-Scan}, and frequently triggers \emph{Timeout Device Recovery}\label{sec:tdr}\footnote{Operating systems handle unresponsive programs differently. On Windows, the Timeout Detection and Recovery (TDR) system resets the GPU after approximately 2 seconds. Other operating systems—such as macOS and Linux—employ their own timeout mechanisms with varying behaviors. For consistency, we adopt Windows’s 2-second limit as a reasonable expectation for maximum execution time.} (TDR), crashing the program. Exacerbating this issue, no major graphics API provides a mechanism to query FPG support. This lack of transparency forces developers to design algorithms without knowing whether critical guarantees are available on the target hardware. In shader environments, where cross-platform portability is essential, this uncertainty compels a fallback to older, less efficient strategies like \emph{Reduce-then-Scan}, sacrificing performance for broader compatibility.
 
 \subsection{Earlier Attempts at Portability}
 Our first attempt at implementing a \emph{Decoupled Lookback} scan without relying on FPG was \emph{Scalar Fallback}. Each time a workgroup spins waiting on the reduction from a preceding tile, it advances a \emph{fallback} operation by processing one scalar element from that tile. This eliminates the possibility of starvation because the number of such operations is bounded; the wait will eventually terminate, possibly at the expense of doing redundant work.
 
-\emph{Scalar Fallback} suffers from two primary inefficiencies. First, the fallback reduction is performed serially by a single thread, progressing only when the lookback thread performs a waiting spin. This results in a $t$-sized blocking tile requiring $t$ spins to complete. Second, once the fallback completes, the lookback thread does not post its result to device memory, forcing every blocked workgroup to redundantly recompute the fallback. While \emph{Scalar Fallback} achieved SOL performance on hardware with FPG and executed correctly without it, its performance on the latter was inferior to \emph{Reduce-then-Scan}.
-
-\begin{figure*}
+\begin{figure*}[t]
   \centering
   \includegraphics[width=.95\textwidth]{graphics/DecoupledFallback.pdf}
   \caption{\emph{Decoupled Fallback}. For brevity, the chained propagation phase is condensed, see \ref{fig:decoupled-lookback} for the full behavior.}
   \label{fig:decoupled-fallback}
 \end{figure*}
+
+\emph{Scalar Fallback} suffers from two primary inefficiencies. First, the fallback reduction is performed serially by a single thread, progressing only when the lookback thread performs a waiting spin. This results in a $t$-sized blocking tile requiring $t$ spins to complete. Second, once the fallback completes, the lookback thread does not post its result to device memory, forcing every blocked workgroup to redundantly recompute the fallback. While \emph{Scalar Fallback} achieved SOL performance on hardware with FPG and executed correctly without it, its performance on the latter was inferior to \emph{Reduce-then-Scan}.
 
 \section{Decoupled Fallback}
 \emph{Decoupled Fallback} addresses both inefficiencies. Our key advance is to utilize the parallelism available in the workgroup to perform the fallback computation, rather than performing it sequentially. To do so requires nontrivial coordination within the workgroup, given that the \emph{Chained Propagation} logic is typically performed by the first thread.
@@ -328,6 +296,19 @@ Our first attempt at implementing a \emph{Decoupled Lookback} scan without relyi
 To optimize the fallback operation, we employ three strategies. (1) First, a shared memory \emph{control flag} enables threads performing the lookback to signal the entire workgroup when a fallback is necessary. (2) Next, we limit the number of spins a thread can perform while waiting on a tile; exceeding this threshold triggers a fallback. While this approach risks \emph{false positive} fallbacks---since a late tile is indistinguishable from a genuinely blocking one---the maximum spin count can be tuned to minimize redundant fallbacks. Increasing the spin count lowers false positives but delays progress in true-blocking scenarios. False positives not only increase memory traffic but also consume compute resources that could be scheduled on the same multiprocessor. (3) After completing a fallback, the workgroup attempts to post the reduction result of the blocking tile, preventing redundant fallbacks by subsequent workgroups.
 
 The viability of \emph{Decoupled Fallback} relies on the same cache locality properties as \emph{Decoupled Lookback}. Since no subgroup scheduler is perfectly fair, all hardware inherently has a natural fallback rate $f$\!, independent of FPG, due to false-positive fallback operations. As a result, memory bandwidth usage increases (and we expect throughput to decrease) by $O(fn)$ to $O((2 + f)n)$. However, just as serial ordering confines spine memory accesses within an $o$-width sliding window, scan input accesses are likewise constrained to an $ot$-width window, increasing their likelihood of residing in cache. As we later empirically demonstrate in Section~\ref{sec:Sim-Blocking}, this cache residency significantly reduces memory access costs, making fallback operations predominantly compute-bound when reducing a blocking tile. Since pure reduction has minimal overhead, throughput approaches $O(2n)$ on most devices.
+
+\section{Implementation}
+At a high level, our algorithm follows a five-phase construction:
+\begin{enumerate}
+  \item[(0)] \textbf {Initialization}: The first thread in the workgroup atomically acquires its work-tile by atomically incrementing a value in global memory.
+  \item \textbf{Load Phase}: Each thread loads $p$ vectors, consuming the input in a subgroup-blocked ordering. For a subgroup size $s$ and vector size $v$, each subgroup processes a contiguous block of size $s \cdot p \cdot v$.
+  \item \textbf{Subgroup-Rake}: Each thread scans its vectors privately, then joins $p$ raking Kogge-Stone~\cite{5009159} subgroup scans,
+        allowing the subgroup-block scan to remain barrier-free and in registers. The subgroup-block reduction is then posted to shared memory. For a workgroup of size $w$, subgroup-raking reduces the size of the local spine to $w/s$.
+  \item \textbf{Workgroup-Wide Scan}: The workgroup collectively performs a scan across the subgroup partial reductions, writing the results back to shared memory upon completion.
+  \item \textbf{Chained Propagation, Decoupled Fallback}: The local reduction is posted to global memory. Then, the first subgroup in the workgroup performs a lookback operation to acquire the reduction result of all previous workgroups, engaging in fallback operations as necessary. Once completed, this subgroup posts the results to shared memory for the workgroup to consume.
+  \item \textbf{Write Phase}: Each subgroup incorporates the results from the workgroup-wide scan and lookback operation to produce and write out the correct output.
+\end{enumerate}
+Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3, and 5 comprise the intra-workgroup scan, following a \emph{Scan-then-Propagate} strategy. Phase 4, \emph{Decoupled Fallback}, is responsible for managing all inter-workgroup dependencies. As our loading and writing phase are typical of scan kernels, we focus here on our portability-specific adaptations.
 
 \begin{algorithm}
   \small
@@ -383,18 +364,34 @@ The viability of \emph{Decoupled Fallback} relies on the same cache locality pro
   \caption{High-Level Scan Kernel}
 \end{algorithm}
 
-\section{Implementation}
-At a high level, our algorithm follows a five-phase construction:
-\begin{enumerate}
-  \item[(0)] \textbf {Initialization}: The first thread in the workgroup atomically acquires its work-tile by atomically incrementing a value in global memory.
-  \item \textbf{Load Phase}: Each thread loads $p$ vectors, consuming the input in a subgroup-blocked ordering. For a subgroup size $s$ and vector size $v$, each subgroup processes a contiguous block of size $s \cdot p \cdot v$.
-  \item \textbf{Subgroup-Rake}: Each thread scans its vectors privately, then joins $p$ raking Kogge-Stone~\cite{5009159} subgroup scans,
-        allowing the subgroup-block scan to remain barrier-free and in registers. The subgroup-block reduction is then posted to shared memory. For a workgroup of size $w$, subgroup-raking reduces the size of the local spine to $w/s$.
-  \item \textbf{Workgroup-Wide Scan}: The workgroup collectively performs a scan across the subgroup partial reductions, writing the results back to shared memory upon completion.
-  \item \textbf{Chained Propagation, Decoupled Fallback}: The local reduction is posted to global memory. Then, the first subgroup in the workgroup performs a lookback operation to acquire the reduction result of all previous workgroups, engaging in fallback operations as necessary. Once completed, this subgroup posts the results to shared memory for the workgroup to consume.
-  \item \textbf{Write Phase}: Each subgroup incorporates the results from the workgroup-wide scan and lookback operation to produce and write out the correct output.
-\end{enumerate}
-Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3, and 5 comprise the intra-workgroup scan, following a \emph{Scan-then-Propagate} strategy. Phase 4, \emph{Decoupled Fallback}, is responsible for managing all inter-workgroup dependencies. As our loading and writing phase are typical of scan kernels, we focus here on our portability-specific adaptations.
+\subsection{Workgroup-Wide Scan}
+The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{10.1145/322217.322232} scan network embedded with Kogge-Stone~\cite{5009159} subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a subgroup \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase causes no performance degradation due to our modest overall use of shared memory, such as our deliberate retention of vectors in registers and the efficiency of subgroup raking.
+
+For a subgroup of size $s$, the Kogge-Stone subgroup network has a work complexity of $s \log_2 s$. Given an input of size $n$, the work complexity is:
+\begin{equation}
+  \begin{aligned}[b]
+    \text{Work} & = \underbrace{\vphantom{\sum_{k=0}^{\lceil \log_s n \rceil}}n}_{\text{fanout}}
+    +
+    \underbrace{\sum_{k=1}^{\lceil \log_s n \rceil}}_{\text{iterations}}
+    \underbrace{\vphantom{\sum_{k=1}^{\lceil \log_s n \rceil}}\frac{n}{s^k}}_{\text{calls per iteration}}
+    \cdot
+    \underbrace{\vphantom{\sum_{k=1}^{\lceil \log_s n \rceil}}s \log_2 s}_{\text{work per call}} \\
+                & = n + s \log_2 s \cdot \sum_{k=1}^{\lceil \log_s n \rceil} \frac{n}{s^k}       \\
+                & = O\left(n + n \log_2 s\right)                                                 \\
+                & = O(n \log_2 s)                                                                \\
+                & = O(n).
+  \end{aligned}
+\end{equation}
+Since the subgroup size remains constant within each kernel launch, the final work complexity is $O(n)$. The Kogge-Stone scan has a depth of $\log_2 s$; the total depth of the workgroup-wide scan is:
+\begin{equation}
+  \begin{aligned}[b]
+    \text{Depth} & = \underbrace{\lceil \log_s n \rceil}_{\text{loop iterations}}
+    \cdot \underbrace{\log_2 s}_{\text{depth per iteration}}                           \\
+                 & = \left\lceil \frac{\log_2 n}{\log_2 s} \right\rceil \cdot \log_2 s \\
+                 & = \log_2 n + O(1).
+  \end{aligned}
+\end{equation}
+Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; and zero bank conflicts across all supported subgroup sizes. However, while minimal depth is preserved regardless of the subgroup size, this result can be somewhat misleading, as the depth incurred during the subgroup portion of the scan requires no barrier, whereas the main loop incurs a workgroup-wide barrier at each iteration. Consequently, while the theoretical depth remains constant across subgroup sizes, smaller subgroups tend to perform worse in practice due to the increased relative cost of synchronization and the overhead of additional iterations in the main loop.
 
 \begin{algorithm}
   \small
@@ -447,35 +444,6 @@ Phase 0 ensures that the work tiles are consumed in serial order. Phases 1, 2, 3
   \caption{Workgroup-Wide Scan.\label{alg:example}}
 \end{algorithm}
 
-\subsection{Workgroup-Wide Scan}
-The WebGPU specification supports subgroup sizes $s$, where $s = 2^k$ and $k \in [2, 7]$; on some hardware, subgroup sizes can vary between kernel launches. To handle this variability, we use a generalized radix-$s$ Ladner-Fischer~\cite{10.1145/322217.322232} scan network embedded with Kogge-Stone~\cite{5009159} subgroup scans to perform the scan across the local spine. Because the upsweep phase of the Ladner-Fischer network follows a Brent-Kung~\cite{1675982} construction, assuming shared memory bank width equal to the subgroup size, any subgroup scans beyond the first will experience maximum $s$-way bank conflicts. To mitigate this, we employ a Merrill-Grimshaw~\cite[Section 3.3.5]{Merrill2009} style conflict avoidance strategy, which reduces bank conflicts to the radix base of the network—in our case, $s$. Counterintuitively, the resulting $s$-way conflict differs from the conflicts incurred by the Brent-Kung construction. Rather than multiple threads accessing different indices in the same memory bank, this conflict arises from a fanout originating from a single index. However, such access is interpreted by the hardware as a subgroup \emph{broadcast} operation, resulting in no conflicts. Although the Merrill-Grimshaw avoidance doubles our shared memory requirements, this increase causes no performance degradation due to our modest overall use of shared memory, such as our deliberate retention of vectors in registers and the efficiency of subgroup raking.
-
-For a subgroup of size $s$, the Kogge-Stone subgroup network has a work complexity of $s \log_2 s$. Given an input of size $n$, the work complexity is:
-\begin{equation}
-  \begin{aligned}[b]
-    \text{Work} & = \underbrace{\vphantom{\sum_{k=0}^{\lceil \log_s n \rceil}}n}_{\text{fanout}}
-    +
-    \underbrace{\sum_{k=1}^{\lceil \log_s n \rceil}}_{\text{iterations}}
-    \underbrace{\vphantom{\sum_{k=1}^{\lceil \log_s n \rceil}}\frac{n}{s^k}}_{\text{calls per iteration}}
-    \cdot
-    \underbrace{\vphantom{\sum_{k=1}^{\lceil \log_s n \rceil}}s \log_2 s}_{\text{work per call}} \\
-                & = n + s \log_2 s \cdot \sum_{k=1}^{\lceil \log_s n \rceil} \frac{n}{s^k}       \\
-                & = O\left(n + n \log_2 s\right)                                                 \\
-                & = O(n \log_2 s)                                                                \\
-                & = O(n).
-  \end{aligned}
-\end{equation}
-Since the subgroup size remains constant within each kernel launch, the final work complexity is $O(n)$. The Kogge-Stone scan has a depth of $\log_2 s$; the total depth of the workgroup-wide scan is:
-\begin{equation}
-  \begin{aligned}[b]
-    \text{Depth} & = \underbrace{\lceil \log_s n \rceil}_{\text{loop iterations}}
-    \cdot \underbrace{\log_2 s}_{\text{depth per iteration}}                           \\
-                 & = \left\lceil \frac{\log_2 n}{\log_2 s} \right\rceil \cdot \log_2 s \\
-                 & = \log_2 n + O(1).
-  \end{aligned}
-\end{equation}
-Thus, this network offers several advantages: minimal depth of $\log_2 n$; asymptotically optimal $O(n)$ size; and zero bank conflicts across all supported subgroup sizes. However, while minimal depth is preserved regardless of the subgroup size, this result can be somewhat misleading, as the depth incurred during the subgroup portion of the scan requires no barrier, whereas the main loop incurs a workgroup-wide barrier at each iteration. Consequently, while the theoretical depth remains constant across subgroup sizes, smaller subgroups tend to perform worse in practice due to the increased relative cost of synchronization and the overhead of additional iterations in the main loop.
-
 \subsection{Decoupled Fallback}
 To reiterate, the goal of \emph{Chained Propagation} is twofold: first, to determine the reduction of all preceding work tiles, and second, to relay those values to succeeding tiles to accelerate their own lookback operations. Following the \emph{Decoupled Lookback} technique, we model the inter-workgroup spine as a finite-state machine, where each work tile is represented by a reduction value and a state, stored in global memory. Each tile may exist in one of three states:
 \begin{itemize}
@@ -486,11 +454,6 @@ To reiterate, the goal of \emph{Chained Propagation} is twofold: first, to deter
 Workgroups operate independently; each is responsible for updating its own tile state but may also opportunistically update preceding tiles in the event of a fallback. Tile states transition in a strictly forward direction---\emph{Not Ready} $\rightarrow$ \emph{Ready} $\rightarrow$ \emph{Inclusive}---and never revert. Before kernel launch, all tiles are initialized to \emph{Not Ready} with reduction values set to $\varepsilon$. State transitions imply an update of the reduction value: a transition to \emph{Ready} results in the posting of the local workgroup reduction, and to \emph{Inclusive}, the reduction of all previous workgroup reductions. To coordinate this process across the workgroup, each workgroup initializes a shared memory \emph{control flag} during partition index acquisition. This flag governs both the initiation of fallback operations and the entry and exit of the entire \emph{Decoupled Fallback} phase, which begins immediately after the workgroup-wide scan over partial reductions is completed.
 
 We now detail the \emph{Decoupled Fallback} procedure, presenting the algorithm from the perspective of a single workgroup. The details of tile state encoding and atomic updates are discussed in the following section and may vary depending on the data type, so for simplicity, we describe the operation as being performed by the \emph{first thread} of the workgroup:
-\begin{figure}
-  \centering
-  \includegraphics[width=\columnwidth]{graphics/FlowChart.pdf}
-  \caption{Flow Chart Representation of \emph{Decoupled Fallback}.\label{fig:decoupled_fallback}}
-\end{figure}
 \begin{enumerate}
   \item[(0)] \textbf{Posting Local Reduction:}
         \begin{itemize}
@@ -542,6 +505,12 @@ We now detail the \emph{Decoupled Fallback} procedure, presenting the algorithm 
           \item Finally, the first thread sets the control flag to \emph{Unlocked}, signaling the rest of the workgroup that \emph{Chained Propagation} has completed, and allowing the final write phase to begin.
         \end{itemize}
 \end{enumerate}
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\columnwidth]{graphics/FlowChart.pdf}
+  \caption{Flow Chart Representation of \emph{Decoupled Fallback}.\label{fig:decoupled_fallback}}
+\end{figure}
 
 \subsection{Tile State Implementation}
 In all variants of \emph{Chained Scan}, there is communication and synchronization between workgroups. The fundamental primitive is \emph{message passing,} meaning that one workgroup posts the result of a communication, then other workgroups read it. This primitive is well-studied in the context of memory models~\cite{Alglave0, MCMutants}. The key requirements here are both control synchronization (meaning the reader does not proceed until the writer sends the message) and data synchronization (meaning that the reader reads the correct value). The latter is especially challenging in relaxed memory models as are employed on GPUs.
