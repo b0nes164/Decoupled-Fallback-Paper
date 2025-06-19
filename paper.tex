@@ -136,10 +136,6 @@
 
 \keywords{scan, parallel prefix, prefix sum, forward-progress guarantee, GPU, WGSL, decoupled fallback}
 
-%\received{?}
-%\received[revised]{?}
-%\received[accepted]{?}
-
 \maketitle
 
 \section{Introduction}
@@ -308,7 +304,7 @@ The absence of FPG in key hardware segments poses a critical challenge for devel
     \caption{\emph{Decoupled Fallback (ours).}}
     \label{fig:ours}
   \end{subfigure}
-  \caption{Histogram plots, 500 runs of Inclusive Prefix Sum, $\mathbf{2^{20}}$ 32-bit elements, on an FPG-lacking device, Apple M1 Max. Bar heights ($y$ axis) indicate the number of runs that completed in the execution time indicated on the $x$ axis. The TDR threshold is Windows's threshold for resetting the GPU\@; as noted in Section~\ref{sec:tdr}, MacOS handles this differently.}
+  \caption{Histogram plots, 500 runs of Inclusive Prefix Sum, $\mathbf{2^{25}}$ 32-bit elements, on an FPG-lacking device, Apple M1 Max. Bar heights ($y$ axis) indicate the number of runs that completed in the execution time indicated on the $x$ axis. The Reduce-then-Scan threshold is the expected execution time of RTS at the same input size; runs to the left of this threshold indicate a performance uplift and vice versa. The TDR threshold is Windows's threshold for resetting the GPU\@; as noted in Section~\ref{sec:tdr}, MacOS handles this differently.}
   \label{fig:dist}
 \end{figure*}
 Exacerbating this issue, no major graphics API provides a mechanism to query FPG support. This lack of transparency forces developers to design algorithms without knowing whether critical guarantees are available on the target hardware. In shader environments, where cross-platform portability is essential, this uncertainty compels a fallback to older, less efficient strategies like \emph{Reduce-then-Scan}, sacrificing performance for broader compatibility.
@@ -610,19 +606,20 @@ We next compare \emph{DF} against \emph{Reduce-then-Scan}\textdagger{A2} (\emph{
     \toprule
     Metric & \!\!\!\!\!\!Intel HD620 & ARM Mali-G78 MP20 & Apple M3 & Apple M1 Max & Nvidia 2080 Super & AMD 7900 XT \\
     \midrule
-    Avg \emph{Memcpy} (32-bit ele/sec $\cdot 10^9$)  & 1.50   & 2.48  & 10.25  & 38.62  & 54.39  & 72.28  \\
-    Avg \emph{DF} (32-bit ele/sec $\cdot 10^9$)   & 1.49   & 2.79  & 10.22  & 38.84  & 53.29  & 94.60  \\
-    Avg \emph{RTS} (32-bit ele/sec $\cdot 10^9$)      & 1.06   & 2.02  & 6.81   & 25.13  & 35.90  & 61.49  \\
-    \emph{DF}/\emph{Memcpy}       & 99.1\%    & 112.8\%  & 99.8\%    & 100.6\%   & 98.0\%    & 130.9\%   \\
-    \emph{DF}/\emph{RTS}          & 140.2\%   & 138.5\%  & 150.2\%   & 154.5\%   & 148.4\%   & 153.8\%   \\
-    Avg Spins per workgroup    & 0.305    & 1.477    & 0.606    & 0.604    & 0.419    & 0.148    \\
-    Avg Lookback Length per workgroup& 1.726    & 3.537    & 3.415    & 10.782   & 13.046   & 20.722   \\
-    Avg Total Fallbacks Initiated      & 254.662   & 2504.704  & 365.546   & 990.962   & 86.400   & 9.308   \\
-    Avg Total Successful Insertions    & 6.170     & 122.436   & 4.612     & 0.012    & 0.284    & 0.020    \\
+    Avg \emph{Memcpy} (32-bit ele/sec $\cdot 10^9$)       & 1.48    & 2.48     & 10.82   & 37.42    & 50.95    & 73.68    \\
+    Avg \emph{DF} (32-bit ele/sec $\cdot 10^9$)           & 1.51    & 2.19     & 10.87   & 36.85    & 51.25    & 83.27    \\
+    Avg \emph{RTS} (32-bit ele/sec $\cdot 10^9$)          & 1.06    & 1.93     & 7.46    & 25.75    & 34.36    & 62.57    \\
+    \emph{DF}/\emph{Memcpy}                              & 102.0\% & 88.4\%   & 100.5\% & 98.4\%   & 100.6\%  & 113.0\%  \\
+    \emph{DF}/\emph{RTS}                                 & 142.6\% & 113.6\%  & 145.7\% & 143.1\%  & 149.1\%  & 133.1\%  \\
+    Avg Spins per workgroup                              & 0.420   & 0.303    & 0.719   & 0.752    & 0.679    & 0.533    \\
+    Avg Lookback Length per workgroup                    & 1.714   & 4.036    & 4.598   & 10.737   & 12.350   & 22.648   \\
+    Avg Total Fallbacks Initiated                        & 446.183 & 245.404  & 449.961 & 1046.216 & 333.324  & 266.641  \\
+    Avg Total Successful Insertions                      & 21.475  & 0.733    & 23.887  & 4.822    & 11.378   & 46.288   \\
     \bottomrule
   \end{tabular*}
   \caption{\emph{Decoupled Fallback} performance, Inclusive Prefix Sum, $\mathbf{2^{25}}$ 32-bit elements.\label{tab:results}}
 \end{table*}
+
 
 As shown in Table~\ref{tab:results}, \emph{DF} achieves at least a $\sim$40\% speedup over \emph{RTS} across all tested devices, closely approaching the theoretically expected $O(3n)/O(2n)$ 50\% speedup, except on the ARM Mali. \emph{DF} closely matches \emph{Memcpy} across most devices, deviating only on the AMD 7900 XT and ARM Mali, where \emph{DF} outperforms \emph{Memcpy} by 30.9\% and 12.8\%, respectively. This suggests that additional compute latency may mitigate paging effects by separating loads from stores. On the ARM Mali, \emph{DF} appears to underperform, achieving only a 36\% speedup instead of the expected 50\%. However, its nearly identical performance to \emph{Memcpy} indicates that the implementation is memory-bandwidth-bound, limiting further gains.
 
@@ -670,7 +667,7 @@ To demonstrate the resilience of our technique to unfair schedulers, we simulate
     \caption{Relative execution time of \emph{DF} under increasing blocking rates compared to an unblocked baseline. Decreasing throughput reflects the growing overhead of fallback operations.\label{fig:execution_time}}
   \end{subfigure}
 
-  \caption{\emph{Decoupled Fallback} Statistics Across Increasing Simulated Blocking Rates. Each subfigure highlights a key performance metric affected by the artificial omission of work tile updates, illustrating the resilience of \emph{DF} under extreme scheduling conditions.}
+  \caption{\emph{Decoupled Fallback} Statistics across increasing simulated blocking Rates. Each subfigure highlights a key performance metric affected by the artificial omission of work tile updates.}
   \label{fig:vertical_images}
 \end{figure*}
 
