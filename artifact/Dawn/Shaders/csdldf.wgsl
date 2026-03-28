@@ -1,12 +1,17 @@
-//***************************************************************************
-// Chained Scan with Decoupled Lookback and Decoupled Fallback
-//
-// CSDL but with an additional fallback routine, allowing the scan to work
-// on hardware without forward thread progress guarantees.
-//
-// WARNING: Binding layout is recycled so some bindings
-// are unused
-//***************************************************************************
+/******************************************************************************
+ * Decoupled-Fallback-Paper
+ * 
+ * Chained Scan with Decoupled Lookback and Decoupled Fallback: CSDL but with 
+ * an additional fallback routine, allowing the scan to work on hardware without 
+ * forward thread progress guarantees.
+ *
+ * WARNING: Binding layout is recycled so some bindings are unused
+ *
+ * SPDX-License-Identifier: MIT
+ * Author:  Thomas Smith 2/5/2025
+ * https://github.com/b0nes164/Decoupled-Fallback-Paper
+ *
+ ******************************************************************************/
 enable subgroups;
 struct ScanParameters
 {

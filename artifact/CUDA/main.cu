@@ -1,3 +1,13 @@
+/******************************************************************************
+ * Decoupled-Fallback-Paper
+ * 
+ * CUDA testing setup for different scan variants
+ *
+ * SPDX-License-Identifier: MIT
+ * Author:  Thomas Smith 2/10/2025
+ * https://github.com/b0nes164/Decoupled-Fallback-Paper
+ *
+ ******************************************************************************/
 #include <cuda_runtime.h>
 
 #include <cstdint>

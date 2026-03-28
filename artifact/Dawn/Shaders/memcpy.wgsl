@@ -1,12 +1,16 @@
-//***************************************************************************
-// Memcpy
-//
-// This kernel serves as a baseline for comparison against Chained Scans 
-// since it has identical 2n memory movement.
-//
-// WARNING: Binding layout is recycled so some bindings
-// are unused
-//***************************************************************************
+/******************************************************************************
+ * Decoupled-Fallback-Paper
+ * 
+ * Memcpy: This kernel serves as a baseline for comparison against Chained Scans 
+ * since it has identical 2n global memory movement.
+ *
+ * WARNING: Binding layout is recycled so some bindings are unused
+ *
+ * SPDX-License-Identifier: MIT
+ * Author:  Thomas Smith 2/5/2025
+ * https://github.com/b0nes164/Decoupled-Fallback-Paper
+ *
+ ******************************************************************************/
 struct ScanParameters
 {
     size: u32,

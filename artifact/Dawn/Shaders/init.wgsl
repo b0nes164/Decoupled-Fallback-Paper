@@ -1,13 +1,16 @@
-//***************************************************************************
-// Initialization Kernel
-//
-// Responsible for initializing `scan_bump` to 0,
-// setting the state of spine tiles to 0 (NOT_READY),
-// and initializing the scan_input.
-//
-// WARNING: Binding layout is recycled so some bindings
-// are unused
-//***************************************************************************
+/******************************************************************************
+ * Decoupled-Fallback-Paper
+ * 
+ * Initialization Kernel: Responsible for initializing `scan_bump` to 0, setting 
+ * the state of spine tiles to 0 (NOT_READY), and initializing the scan_input.
+ *
+ * WARNING: Binding layout is recycled so some bindings are unused
+ *
+ * SPDX-License-Identifier: MIT
+ * Author:  Thomas Smith 2/5/2025
+ * https://github.com/b0nes164/Decoupled-Fallback-Paper
+ *
+ ******************************************************************************/
 struct ScanParameters
 {
     size: u32,

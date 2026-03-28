@@ -1,13 +1,17 @@
-//***************************************************************************
-// Reduce then Scan
-//
-// Also known as a "Tree Scan" or "Two-Level Scan," this approach 
-// first reduces values to intermediate results, which are then 
-// scanned and passed into a final downsweep pass.
-//
-// WARNING: Binding layout is recycled so some bindings
-// are unused
-//***************************************************************************
+/******************************************************************************
+ * Decoupled-Fallback-Paper
+ * 
+ * Reduce then Scan: Also known as a "Tree Scan" or "Two-Level Scan," this 
+ * approach first reduces values directly to the spine, which is then scanned 
+ * and passed into a final downsweep pass.
+ *
+ * WARNING: Binding layout is recycled so some bindings are unused
+ *
+ * SPDX-License-Identifier: MIT
+ * Author:  Thomas Smith 2/5/2025
+ * https://github.com/b0nes164/Decoupled-Fallback-Paper
+ *
+ ******************************************************************************/
 enable subgroups;
 struct ScanParameters
 {

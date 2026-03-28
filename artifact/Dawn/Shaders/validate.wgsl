@@ -1,11 +1,15 @@
-//***************************************************************************
-// Validate
-//
-// This kernel verifies the correctness of results on the GPU.
-//
-// WARNING: Binding layout is recycled so some bindings
-// are unused
-//***************************************************************************
+/******************************************************************************
+ * Decoupled-Fallback-Paper
+ *
+ * Validate: This kernel verifies the correctness of results on the GPU.
+ *
+ * WARNING: Binding layout is recycled so some bindings are unused
+ *
+ * SPDX-License-Identifier: MIT
+ * Author:  Thomas Smith 2/5/2025
+ * https://github.com/b0nes164/Decoupled-Fallback-Paper
+ *
+ ******************************************************************************/
 struct ScanParameters
 {
     size: u32,
@@ -15,7 +19,7 @@ struct ScanParameters
 };
 
 @group(0) @binding(0)
-var<uniform> params : ScanParameters; 
+var<uniform> params : ScanParameters;
 
 @group(0) @binding(1)
 var<storage, read_write> unused_1: array<u32>;
@@ -40,8 +44,8 @@ fn main(
     @builtin(global_invocation_id) id: vec3<u32>,
     @builtin(num_workgroups) griddim: vec3<u32>) {
     for(var i: u32 = id.x; i < params.size; i += griddim.x * BLOCK_DIM){
-        //The inclusive scan of 1 . . . is the natural numbers 
-        let expected = i + 1u; 
+        //The inclusive scan of 1 . . . is the natural numbers
+        let expected = i + 1u;
         if(scan_out[i] != expected){
             atomicAdd(&error[ERR_COUNT_INDEX], 1u);
         }

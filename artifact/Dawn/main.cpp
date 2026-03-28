@@ -1,3 +1,13 @@
+/******************************************************************************
+ * Decoupled-Fallback-Paper
+ * 
+ * Dawn testing setup for different scan variants
+ *
+ * SPDX-License-Identifier: MIT
+ * Author:  Thomas Smith 1/23/2025
+ * https://github.com/b0nes164/Decoupled-Fallback-Paper
+ *
+ ******************************************************************************/
 #include <dawn/webgpu_cpp.h>
 
 #include <cstdlib>

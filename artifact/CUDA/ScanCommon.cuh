@@ -1,3 +1,13 @@
+/******************************************************************************
+ * Decoupled-Fallback-Paper
+ * 
+ * CUDA Chained Scan with Decoupled Lookback, Decoupled Fallback
+ *
+ * SPDX-License-Identifier: MIT
+ * Author:  Thomas Smith 2/10/2025
+ * https://github.com/b0nes164/Decoupled-Fallback-Paper
+ *
+ ******************************************************************************/
 #pragma once
 #include "Utils.cuh"
 template <uint32_t PER_THREAD>

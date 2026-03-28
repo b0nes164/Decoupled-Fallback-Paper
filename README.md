@@ -1,8 +1,7 @@
 # SPAA2025 Decoupled Fallback Artifact
-This repository contains the LaTeX file and artifact the SPAA2025 submission *Decoupled Fallback: A Portable Single-Pass GPU Scan.* This artifact contains testing material for three APIs :
+This repository contains the LaTeX file and artifact the SPAA2025 submission *Decoupled Fallback: A Portable Single-Pass GPU Scan.* This artifact contains testing material for two APIs :
 
 - Google Chrome Dawn
-- WGPU
 - CUDA
 
 ---
@@ -89,34 +88,6 @@ Once the artifact has been successfully built, you can run it using the followin
 #
 # [record]        (Optional) Enables recording of test results to a CSV file.
 # [deviceName]    (Optional) Appends the device name to recorded test results.
-```
-
-# Building the WGPU Artifact
-
-## Device Requirements
-- Any device supporting WGPU, with subgroup and timestamp query capabilities.
-- At least **384 MB** of available device memory.
-- At least **300 MB** of disk space is required to build WGPU.
-
-## Software Requirements
-- Rust
-
-## Building/Running the Artifact
-
-```sh
-cd Decoupled-Fallback-Paper/artifact/WGPU
-
-cargo run --release <TestType> [record] [deviceName]
-
-# Arguments:
-# <TestType>   Specifies the test to run. Valid options are:
-#    csdl      - Runs the Decoupled Lookback test.
-#                Warning: this will crash without FPG.
-#    csdldf    - Runs the Decoupled Fallback test.
-#    full      - Runs Decoupled Fallback and simulated blocking tests.
-#
-# [record]     (Optional) Enables recording of test results to a CSV file.
-# [deviceName] (Optional) Appends the device name to recorded test results.
 ```
 
 # Building the CUDA Artifact
